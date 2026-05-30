@@ -1,0 +1,47 @@
+# Don't ship anything that's host-state, secret, or huge.
+
+# Secrets — under no circumstances
+.env
+.env.*
+!.env.example
+
+# Persistent state (mounted as volumes at runtime)
+trading.db
+trading.db-journal
+trading.db-shm
+trading.db-wal
+data_cache/
+backtest_results/
+logs/
+
+# Dev-only
+.venv/
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Git history (image doesn't need it)
+.git/
+.gitignore
+
+# Claude / agent state
+.claude/
+.agents/
+
+# Tests are useful for CI but not needed at runtime
+tests/
+
+# Misc
+*.log
+*.tmp
+*.bak
