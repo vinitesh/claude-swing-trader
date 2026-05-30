@@ -1,0 +1,29 @@
+# =====================================================================
+# Pullback to 20 EMA strategy
+#
+# Setup: Buy quality uptrending stocks when they pull back to the 20 EMA
+#        and show a bullish bounce candle.
+# =====================================================================
+
+allocation_pct: 0.40        # Up to 40% of account capital
+risk_pct: 0.01              # 1% risk per trade
+
+# Indicator periods
+ema_fast: 20
+sma_mid: 50
+sma_slow: 200
+rsi_period: 14
+
+# Entry filters
+rsi_zone: [40, 55]                  # RSI must fall in this band on entry
+pullback_proximity_pct: 0.015       # Low must come within 1.5% of 20 EMA
+require_uptrend: true               # Price > 50 SMA > 200 SMA
+require_bullish_candle: true        # close > open on entry day
+
+# Exit rules
+stop_loss_pct: 0.02         # 2% below entry
+take_profit_pct: 0.04       # 4% above entry (2:1 reward:risk)
+time_stop_days: 15          # Exit if not profitable after 15 days
+
+# Universe override (uses global default if empty)
+universe: []   # e.g., [AAPL, MSFT, ...]

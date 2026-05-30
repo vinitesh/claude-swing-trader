@@ -1,0 +1,56 @@
+# =====================================================================
+# Global config — overrides via environment variables (see .env.example)
+# =====================================================================
+
+mode: paper        # paper | live | backtest
+
+broker:
+  type: alpaca
+  data_feed: iex   # iex (free) | sip (paid SIP feed)
+
+data:
+  primary: yfinance       # yfinance | alpaca
+  fallback: alpaca
+  cache_dir: ./data_cache
+
+risk:
+  default_risk_pct: 0.01          # Risk 1% of account per trade
+  max_open_positions: 8
+  max_per_strategy: 5
+  daily_loss_limit_pct: 0.03      # Halt trading if -3% in a day
+  min_position_size_usd: 100      # Skip signals where position would be tiny
+
+universe:
+  # A small starter universe of liquid US large-caps.
+  # Override per-strategy in their YAML.
+  default:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - NVDA
+    - META
+    - AMZN
+    - TSLA
+    - JPM
+    - V
+    - JNJ
+    - WMT
+    - PG
+    - UNH
+    - HD
+    - MA
+
+# Strategies to load. The registry auto-discovers them from strategies/.
+# Each entry's `name` must match a Strategy.name attribute.
+strategies:
+  - name: pullback_ema
+    enabled: true
+    config_file: pullback_ema.yaml
+
+notifications:
+  telegram:
+    enabled: false   # flip to true once env vars set
+
+logging:
+  level: INFO
+  json: false

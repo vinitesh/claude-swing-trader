@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+*.pem
+secrets/
+
+# Data & artifacts
+data_cache/
+backtest_results/
+logs/*.log
+*.sqlite
+*.db
+trading.db
+*.parquet
+*.csv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Claude
+.claude/settings.local.json
