@@ -4,6 +4,41 @@ This guide gets two strategies (PullbackEMA + RSI(2)) trading the full S&P 500
 on a free Alpaca paper account. After 60-90 days of paper performance, decide
 whether to graduate to small live capital.
 
+## ⚠️ Secrets handling — read this first
+
+**Never paste API keys, secrets, or tokens into a chat assistant, AI tool,
+shared terminal, log file, screenshot, or commit.** This includes Claude Code,
+ChatGPT, Slack, screen recordings — anything that produces a transcript.
+
+Once a secret is in a transcript or log, treat it as compromised even if the
+medium "feels private". Rotate immediately: log into the provider, regenerate
+the key, and the old one becomes worthless.
+
+Workflow that keeps secrets out of harm's way:
+
+1. Generate the key on the provider's website.
+2. Open `.env` directly in a local editor (`vim`, `nano`, `code`, `TextEdit`).
+3. Paste the value into the file. Save. Close the editor.
+4. Verify the application picked it up with a one-liner that shows ONLY a
+   prefix (never the full secret):
+   ```bash
+   .venv/bin/python -c "from core.config import init; s, _ = init(); \
+       print('key prefix:', s.alpaca_api_key[:4] + '...' if s.alpaca_api_key else '(empty)'); \
+       print('secret len:', len(s.alpaca_secret_key))"
+   ```
+5. To tell anyone (human or AI) about the keys, say *"I've added them to
+   `.env`"* — don't paste the values.
+
+If you accidentally leak a key:
+- **Alpaca:** dashboard → API Keys → Regenerate / Delete.
+- **Telegram bot:** message @BotFather, `/revoke`, generate a new bot.
+- **GitHub PAT, AWS key, etc.:** revoke in the provider's settings; check git
+  history with `git log -S 'leaked-prefix' --all` and rewrite history if
+  needed.
+
+The `.env` file itself is gitignored (see `.gitignore`) so you're safe from
+accidentally committing it — but only as long as you don't override that.
+
 ## What you'll have running at the end
 
 - **Daily run** at 4:05pm ET (after market close): scans S&P 500, picks signals,
