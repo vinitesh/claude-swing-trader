@@ -127,5 +127,83 @@ def scan(strategy: str | None) -> None:
     console.print(f"\n[bold]{len(signals)} signal(s) found[/bold]")
 
 
+@cli.command("run-live")
+@click.option("--dry-run", is_flag=True, help="Scan + risk-gate but do NOT submit orders")
+@click.option("--strategy", default=None, help="Limit to one strategy (default: all enabled)")
+def run_live(dry_run: bool, strategy: str | None) -> None:
+    """Daily live run: scan + size + risk-gate + submit + persist + alert.
+
+    Idempotent: re-running on the same trading day will not duplicate orders.
+    """
+    from core.live_runner import LiveRunner
+
+    settings, global_cfg = init()
+    setup_logging(level=settings.log_level, log_dir=settings.log_dir)
+
+    if strategy:
+        global_cfg["strategies"] = [
+            s for s in global_cfg["strategies"] if s["name"] == strategy
+        ]
+        if not global_cfg["strategies"]:
+            console.print(f"[red]Unknown strategy: {strategy}[/red]")
+            sys.exit(1)
+
+    runner = LiveRunner(settings=settings, config=global_cfg, dry_run=dry_run)
+    outcome = runner.run()
+
+    console.print()
+    style = "green" if not outcome.error else "red"
+    console.print(f"[bold {style}]Run complete — mode={outcome.mode}[/bold {style}]")
+    console.print(f"  Signals found:     {outcome.signals_found}")
+    console.print(f"  Orders submitted:  {outcome.orders_submitted}")
+    console.print(f"  Skipped (dedupe):  {outcome.orders_skipped}")
+    console.print(f"  Rejected (risk):   {outcome.orders_rejected}")
+    if outcome.error:
+        console.print(f"[red]  Error: {outcome.error}[/red]")
+        sys.exit(2)
+
+
+@cli.command("sync")
+def sync() -> None:
+    """Sync open positions/orders from Alpaca → SQLite. Updates fills, exits, P&L."""
+    from core.live_runner import LiveRunner  # for broker
+    from datetime import datetime as _dt
+
+    settings, global_cfg = init()
+    setup_logging(level=settings.log_level, log_dir=settings.log_dir)
+    runner = LiveRunner(settings=settings, config=global_cfg, dry_run=False)
+    broker = runner.broker
+
+    from persistence import repository as repo
+    from persistence.db import session_scope
+
+    try:
+        positions = broker.get_positions()
+    except Exception as e:
+        console.print(f"[red]broker.get_positions failed: {e}[/red]")
+        sys.exit(2)
+
+    open_symbols = {p.symbol for p in positions}
+    console.print(f"[bold]Broker open positions:[/bold] {len(open_symbols)} — {sorted(open_symbols)}")
+
+    closed = 0
+    with session_scope() as s:
+        # Any position open in DB but not at broker → mark closed.
+        # We don't have exit price here; use last entry_price as a placeholder
+        # (a proper sync would query Alpaca order history; this is the v1).
+        db_positions = repo.get_open_positions(s)
+        for p in db_positions:
+            if p.symbol not in open_symbols:
+                repo.close_position(
+                    s, symbol=p.symbol, exit_price=p.avg_entry_price,
+                    exit_reason="closed_at_broker", closed_at=_dt.utcnow(),
+                )
+                closed += 1
+                console.print(f"  closed: {p.symbol} (broker no longer holds)")
+
+    console.print(f"\n[dim]Closed {closed} position(s) in DB to match broker.[/dim]")
+    console.print("[dim]Note: v1 sync uses entry_price as exit; for true P&L pull Alpaca order history.[/dim]")
+
+
 if __name__ == "__main__":
     cli()
