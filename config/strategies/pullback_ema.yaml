@@ -12,8 +12,9 @@
 # Sits inside the robust cluster (mean test Sharpe 1.35) of stop=0.02 + regime=off.
 # Source: backtest_results/pullback_ema/walk_forward_sweep.csv
 #
-allocation_pct: 0.40        # Up to 40% of account capital
+allocation_pct: 0.40        # Up to 40% of account capital (within strategy cap)
 risk_pct: 0.01              # 1% risk per trade
+capital_allocation_usd: 25000  # Hard cap for multi-strategy paper account
 
 # Indicator periods
 ema_fast: 15                # sweep favored 15 over default 20

@@ -46,6 +46,9 @@ strategies:
   - name: pullback_ema
     enabled: true
     config_file: pullback_ema.yaml
+  - name: rsi2
+    enabled: true
+    config_file: rsi2.yaml
 
 notifications:
   telegram:

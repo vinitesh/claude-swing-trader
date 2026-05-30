@@ -205,6 +205,26 @@ class LiveRunner:
         )
         return outcome
 
+    # --------------- Capital accounting ---------------
+    def _strategy_remaining_capital(self, strategy_name: str, session) -> float | None:
+        """How many USD this strategy is still allowed to deploy.
+
+        Returns None if the strategy has no per-strategy cap configured (cap=0).
+        Otherwise: cap - sum(notional value of currently-open positions tagged
+        to this strategy in our DB). Uses entry_price as a proxy for current
+        notional (close-enough for sizing decisions; sync updates it).
+        """
+        strat = next((s for s in self.strategies if s.name == strategy_name), None)
+        if strat is None or strat.capital_allocation_usd <= 0:
+            return None
+        from persistence import repository as _repo
+        open_rows = [
+            p for p in _repo.get_open_positions(session)
+            if p.strategy_name == strategy_name
+        ]
+        deployed = sum((p.qty * p.avg_entry_price) for p in open_rows)
+        return max(0.0, strat.capital_allocation_usd - deployed)
+
     # --------------- Scan + submit ---------------
     def _scan_and_submit(self, session, run_row, today: date, outcome: RunOutcome) -> None:
         end = today
@@ -256,9 +276,17 @@ class LiveRunner:
 
         # Position sizing (per-strategy logic in strategy_base)
         strat = next((s for s in self.strategies if s.name == sig.strategy_name), None)
+        # If strategy has a per-strategy USD cap, size against the SMALLER of
+        # (cash available, strategy capital remaining). This prevents one
+        # strategy starving another in a shared account.
+        strat_remaining = self._strategy_remaining_capital(sig.strategy_name, session)
+        size_against = account.cash
+        if strat is not None and strat.capital_allocation_usd > 0 and strat_remaining is not None:
+            size_against = min(account.cash, strat_remaining)
+
         qty = (
             strat.position_size(
-                account_value=account.cash,
+                account_value=size_against,
                 entry_price=sig.entry_price,
                 stop_loss=sig.stop_loss,
             )
@@ -271,6 +299,7 @@ class LiveRunner:
             account=account,
             open_positions=open_positions,
             qty=qty,
+            strategy_remaining_capital=strat_remaining,
         )
         if not ok:
             outcome.orders_rejected += 1

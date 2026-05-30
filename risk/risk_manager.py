@@ -31,8 +31,14 @@ class RiskManager:
         qty: int,
         day_pnl: float = 0.0,
         day_start_equity: float | None = None,
+        strategy_remaining_capital: float | None = None,
     ) -> tuple[bool, str]:
-        """Return (approved, reason). reason is empty when approved."""
+        """Return (approved, reason). reason is empty when approved.
+
+        ``strategy_remaining_capital`` is the per-strategy capital cap minus the
+        notional value of already-open positions tagged to that strategy. When
+        provided (multi-strategy live mode), this strategy cannot exceed it.
+        """
 
         if qty <= 0:
             return False, "qty=0 (insufficient capital or zero risk distance)"
@@ -47,6 +53,14 @@ class RiskManager:
             return False, f"notional ${notional:.0f} exceeds cash ${account.cash:.0f}"
         if notional > account.buying_power:
             return False, f"notional ${notional:.0f} exceeds buying power ${account.buying_power:.0f}"
+
+        # Per-strategy capital cap (multi-strategy isolation)
+        if strategy_remaining_capital is not None:
+            if notional > strategy_remaining_capital:
+                return False, (
+                    f"notional ${notional:.0f} exceeds strategy capital remaining "
+                    f"${strategy_remaining_capital:.0f}"
+                )
 
         # Reward:risk
         if signal.risk_per_share <= 0:

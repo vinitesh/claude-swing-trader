@@ -30,6 +30,12 @@ class Strategy(ABC):
         self.config: dict = config
         self.allocation_pct: float = float(config.get("allocation_pct", 0.2))
         self.risk_pct: float = float(config.get("risk_pct", 0.01))
+        # Per-strategy hard dollar cap for multi-strategy paper/live trading.
+        # 0 = no cap (use account fraction only). Backtests typically run one
+        # strategy at a time and ignore this.
+        self.capital_allocation_usd: float = float(
+            config.get("capital_allocation_usd", 0)
+        )
 
     # ---------------- Universe ----------------
     @abstractmethod
@@ -69,6 +75,21 @@ class Strategy(ABC):
         Default: never. The Engine separately enforces bracket-order
         stop-loss / take-profit. Override only if you need extra logic
         like a time stop or signal reversal.
+        """
+        return False
+
+    def should_exit_signal(self, position: Position, df: pd.DataFrame) -> bool:
+        """Indicator-based exit. Runs at the START of each daily bar, BEFORE
+        bracket SL/TP are checked. If True, position closes at today's close.
+
+        Use this for strategies whose exit is condition-based (e.g. RSI > 70)
+        rather than purely price-trigger (SL/TP).
+
+        Default: never (defer to bracket exits + time stop). Override only when
+        the strategy's edge depends on indicator-driven exits.
+
+        ``df`` is the full per-symbol DataFrame with indicators populated up to
+        AND INCLUDING today's bar.
         """
         return False
 

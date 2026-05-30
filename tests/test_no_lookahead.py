@@ -30,7 +30,9 @@ import pandas as pd
 import pytest
 
 from core.config import load_strategy_config
+from core.strategy_base import Strategy
 from strategies.pullback_ema import PullbackEMA
+from strategies.rsi2 import RSI2
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data_cache"
 
@@ -46,22 +48,49 @@ def _load_cached_bars() -> pd.DataFrame:
     return df
 
 
-@pytest.fixture(scope="module")
-def strategy() -> PullbackEMA:
-    cfg = load_strategy_config("pullback_ema.yaml")
+# Run every test against every strategy so adding a new strategy = automatic
+# look-ahead test coverage.
+STRATEGY_FACTORIES = [
+    pytest.param(
+        ("pullback_ema.yaml", PullbackEMA, ("ema_fast", "sma_mid", "sma_slow", "rsi")),
+        id="pullback_ema",
+    ),
+    pytest.param(
+        ("rsi2.yaml", RSI2, ("rsi_short", "sma_long")),
+        id="rsi2",
+    ),
+]
+
+
+@pytest.fixture(params=STRATEGY_FACTORIES, ids=lambda p: p.values[0][0])
+def strategy_and_cols(request) -> tuple[Strategy, tuple[str, ...]]:
+    yaml_name, cls, indicator_cols = request.param
+    cfg = load_strategy_config(yaml_name)
     cfg["universe"] = ["AAPL"]
     cfg["require_bull_regime"] = False  # isolate strategy logic from regime side-channel
-    return PullbackEMA(cfg)
+    return cls(cfg), indicator_cols
 
 
-@pytest.fixture(scope="module")
-def bars(strategy: PullbackEMA) -> pd.DataFrame:
+@pytest.fixture()
+def strategy(strategy_and_cols) -> Strategy:
+    return strategy_and_cols[0]
+
+
+@pytest.fixture()
+def indicator_cols(strategy_and_cols) -> tuple[str, ...]:
+    return strategy_and_cols[1]
+
+
+@pytest.fixture()
+def bars(strategy) -> pd.DataFrame:
     raw = _load_cached_bars()
     return strategy.indicators(raw)
 
 
 # ----------------------- Tests -----------------------
-def test_indicators_have_no_lookahead(strategy: PullbackEMA, bars: pd.DataFrame) -> None:
+def test_indicators_have_no_lookahead(
+    strategy: Strategy, indicator_cols: tuple[str, ...], bars: pd.DataFrame
+) -> None:
     """An indicator value at date t must not change when more future data is added."""
     raw = _load_cached_bars()
     full = strategy.indicators(raw)
@@ -73,7 +102,7 @@ def test_indicators_have_no_lookahead(strategy: PullbackEMA, bars: pd.DataFrame)
     for i in sample_idx:
         prefix = strategy.indicators(raw.iloc[: i + 1])
         # The last row of the prefix should match full.iloc[i] for every indicator col
-        for col in ("ema_fast", "sma_mid", "sma_slow", "rsi"):
+        for col in indicator_cols:
             a = prefix[col].iloc[-1]
             b = full[col].iloc[i]
             if pd.isna(a) and pd.isna(b):
@@ -85,7 +114,7 @@ def test_indicators_have_no_lookahead(strategy: PullbackEMA, bars: pd.DataFrame)
 
 
 def test_should_enter_decision_matches_prefix_vs_full(
-    strategy: PullbackEMA, bars: pd.DataFrame
+    strategy: Strategy, bars: pd.DataFrame
 ) -> None:
     """Decision at t must be identical whether we pass df[:t+1] or the full df.
 
@@ -119,7 +148,7 @@ def test_should_enter_decision_matches_prefix_vs_full(
 
 
 def test_should_enter_only_reads_last_row(
-    strategy: PullbackEMA, bars: pd.DataFrame
+    strategy: Strategy, indicator_cols: tuple[str, ...], bars: pd.DataFrame
 ) -> None:
     """Mutating any non-last row of the input df must NOT change the decision.
 
@@ -137,8 +166,8 @@ def test_should_enter_only_reads_last_row(
         # Mutate every row except the last to garbage values
         perturbed = prefix.copy()
         perturbed.loc[perturbed.index[:-1], "close"] = -999.0
-        perturbed.loc[perturbed.index[:-1], "ema_fast"] = -999.0
-        perturbed.loc[perturbed.index[:-1], "rsi"] = 999.0
+        for col in indicator_cols:
+            perturbed.loc[perturbed.index[:-1], col] = -999.0
 
         sig_dirty = strategy.should_enter(perturbed)
 

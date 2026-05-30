@@ -99,6 +99,17 @@ class Backtester:
                 if df is None or today_ts not in df.index:
                     continue
                 bar = df.loc[today_ts]
+
+                # Signal-based exit (e.g. RSI(2) > 70). Checked before bracket
+                # to give strategies a chance to take profit/loss on indicators
+                # rather than only on price-trigger levels.
+                window = df.loc[:today_ts]
+                if self.strategy.should_exit_signal(pos, window):
+                    exit_price = float(bar["close"])
+                    broker.close_position(sym, exit_price=exit_price)
+                    trades.append(_make_trade(pos, today_ts, exit_price, "signal_exit"))
+                    continue
+
                 exit_info = self._check_bracket_exit(pos, bar)
                 if exit_info is None:
                     # Time stop?

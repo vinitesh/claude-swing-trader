@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(crontab -l*)",
+      "Bash(claude --print*)",
+      "mcp__yahoo-finance__get-ticker-info",
+      "mcp__plugin_search_search__search"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+# =====================================================================
+# Connors RSI(2) mean-reversion strategy
+#
+# Setup: Buy quality stocks (close > 200-SMA) when their 2-day RSI dips
+#        oversold. Exit when RSI rebounds, with hard stop + time stop as
+#        backstops.
+# =====================================================================
+
+allocation_pct: 0.20            # Up to 20% of capital_allocation per position
+risk_pct: 0.01                  # 1% account risk per trade
+capital_allocation_usd: 25000   # Hard cap for multi-strategy paper account
+
+# Indicator periods
+rsi_short_period: 2
+sma_long: 200
+
+# Entry filters
+oversold_threshold: 10          # RSI(2) must be below this to enter
+require_bull_regime: false      # SPY 200-SMA gate (set true for safer)
+
+# Exit rules
+exit_threshold: 70              # RSI(2) > this → exit at today's close
+stop_loss_pct: 0.04             # 4% catastrophe stop (RSI(2) trades dip first)
+take_profit_pct: 0.20           # Wide TP (effectively unused — exit on RSI)
+time_stop_days: 5               # Force exit after 5 days if neither fired
+
+# Universe override (uses global default if empty)
+universe: []
