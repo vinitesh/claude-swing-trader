@@ -205,5 +205,82 @@ def sync() -> None:
     console.print("[dim]Note: v1 sync uses entry_price as exit; for true P&L pull Alpaca order history.[/dim]")
 
 
+@cli.command("report")
+@click.option("--strategy", default=None, help="Limit to one strategy (default: all)")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of pretty table")
+def report(strategy: str | None, as_json: bool) -> None:
+    """Per-strategy bake-off report: signals, orders, P&L, win rate, hold days."""
+    from core.reporting import report_all_strategies, report_strategy
+    from persistence.db import session_scope
+    import json as _json
+
+    settings, _ = init()
+    setup_logging(level=settings.log_level, log_dir=settings.log_dir)
+
+    with session_scope() as s:
+        reports = (
+            [report_strategy(s, strategy)] if strategy else report_all_strategies(s)
+        )
+
+    if as_json:
+        console.print_json(_json.dumps([r.as_dict() for r in reports]))
+        return
+
+    if not reports:
+        console.print("[yellow]No strategy data in DB yet. Run 'swingbot run-live' first.[/yellow]")
+        return
+
+    table = Table(title="Strategy Bake-Off Report")
+    table.add_column("Strategy", style="cyan", no_wrap=True)
+    table.add_column("Signals", justify="right")
+    table.add_column("Orders", justify="right")
+    table.add_column("Open", justify="right")
+    table.add_column("Closed", justify="right")
+    table.add_column("Realized P&L", justify="right")
+    table.add_column("Win %", justify="right")
+    table.add_column("Avg Win", justify="right")
+    table.add_column("Avg Loss", justify="right")
+    table.add_column("PF", justify="right")
+    table.add_column("Hold (d)", justify="right")
+    table.add_column("Last Run")
+
+    total_pnl = 0.0
+    total_signals = 0
+    total_orders = 0
+    for r in reports:
+        total_pnl += r.realized_pnl
+        total_signals += r.signals_total
+        total_orders += r.orders_submitted
+        pf_str = "∞" if r.profit_factor == float("inf") else f"{r.profit_factor:.2f}"
+        pnl_color = "green" if r.realized_pnl >= 0 else "red"
+        last_run = r.last_run_at.strftime("%Y-%m-%d %H:%M") if r.last_run_at else "—"
+        table.add_row(
+            r.strategy_name,
+            str(r.signals_total),
+            str(r.orders_submitted),
+            str(r.positions_open),
+            str(r.positions_closed),
+            f"[{pnl_color}]${r.realized_pnl:+,.2f}[/{pnl_color}]",
+            f"{r.win_rate*100:.1f}%" if r.positions_closed else "—",
+            f"${r.avg_win:.2f}" if r.num_wins else "—",
+            f"${r.avg_loss:.2f}" if r.num_losses else "—",
+            pf_str if r.positions_closed else "—",
+            f"{r.avg_hold_days:.1f}" if r.avg_hold_days else "—",
+            last_run,
+        )
+
+    if len(reports) > 1:
+        table.add_section()
+        pnl_color = "green" if total_pnl >= 0 else "red"
+        table.add_row(
+            "[bold]TOTAL[/bold]",
+            str(total_signals), str(total_orders), "—", "—",
+            f"[{pnl_color}]${total_pnl:+,.2f}[/{pnl_color}]",
+            "—", "—", "—", "—", "—", "—",
+        )
+
+    console.print(table)
+
+
 if __name__ == "__main__":
     cli()

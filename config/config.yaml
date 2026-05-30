@@ -21,24 +21,12 @@ risk:
   min_position_size_usd: 100      # Skip signals where position would be tiny
 
 universe:
-  # A small starter universe of liquid US large-caps.
-  # Override per-strategy in their YAML.
+  # Full S&P 500 — resolved by core/config.py at load time. Strategies were
+  # validated on this universe; deploying to a smaller subset would invalidate
+  # the walk-forward sweep results.
+  # To use a custom list instead, replace ["__SP500__"] with explicit symbols.
   default:
-    - AAPL
-    - MSFT
-    - GOOGL
-    - NVDA
-    - META
-    - AMZN
-    - TSLA
-    - JPM
-    - V
-    - JNJ
-    - WMT
-    - PG
-    - UNH
-    - HD
-    - MA
+    - "__SP500__"
 
 # Strategies to load. The registry auto-discovers them from strategies/.
 # Each entry's `name` must match a Strategy.name attribute.

@@ -69,8 +69,20 @@ def load_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_global_config() -> dict[str, Any]:
-    """Load config/config.yaml."""
-    return load_yaml(CONFIG_DIR / "config.yaml")
+    """Load config/config.yaml.
+
+    Resolves the universe sentinel ``["__SP500__"]`` to the full S&P 500
+    list at load time, so the YAML stays readable but the runner sees a
+    concrete list. Other lists pass through unchanged.
+    """
+    cfg = load_yaml(CONFIG_DIR / "config.yaml")
+    universe_block = cfg.get("universe") or {}
+    default_list = universe_block.get("default")
+    if default_list == ["__SP500__"]:
+        # Lazy import so config doesn't pull in network code on every load
+        from data.universe import load_sp500
+        cfg["universe"]["default"] = load_sp500()
+    return cfg
 
 
 def load_strategy_config(filename: str) -> dict[str, Any]:
