@@ -5,11 +5,18 @@
 #        and show a bullish bounce candle.
 # =====================================================================
 
+#
+# Locked params from walk-forward sweep (2019-2021 train → 2022-2023 test):
+#   ema=15, rsi=[40,55], stop=0.02, RR=3, regime_off
+#   train_sharpe=1.45  test_sharpe=0.93  test_cagr=8.2%  test_max_dd=-10.6%
+# Sits inside the robust cluster (mean test Sharpe 1.35) of stop=0.02 + regime=off.
+# Source: backtest_results/pullback_ema/walk_forward_sweep.csv
+#
 allocation_pct: 0.40        # Up to 40% of account capital
 risk_pct: 0.01              # 1% risk per trade
 
 # Indicator periods
-ema_fast: 20
+ema_fast: 15                # sweep favored 15 over default 20
 sma_mid: 50
 sma_slow: 200
 rsi_period: 14
@@ -19,10 +26,11 @@ rsi_zone: [40, 55]                  # RSI must fall in this band on entry
 pullback_proximity_pct: 0.015       # Low must come within 1.5% of 20 EMA
 require_uptrend: true               # Price > 50 SMA > 200 SMA
 require_bullish_candle: true        # close > open on entry day
+require_bull_regime: false          # SPY 200-SMA gate hurt mean test Sharpe in sweep
 
 # Exit rules
 stop_loss_pct: 0.02         # 2% below entry
-take_profit_pct: 0.04       # 4% above entry (2:1 reward:risk)
+take_profit_pct: 0.06       # 6% above entry (3:1 reward:risk)
 time_stop_days: 15          # Exit if not profitable after 15 days
 
 # Universe override (uses global default if empty)
