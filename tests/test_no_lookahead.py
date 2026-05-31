@@ -31,6 +31,7 @@ import pytest
 
 from core.config import load_strategy_config
 from core.strategy_base import Strategy
+from strategies.donchian import Donchian
 from strategies.pullback_ema import PullbackEMA
 from strategies.rsi2 import RSI2
 
@@ -58,6 +59,10 @@ STRATEGY_FACTORIES = [
     pytest.param(
         ("rsi2.yaml", RSI2, ("rsi_short", "sma_long")),
         id="rsi2",
+    ),
+    pytest.param(
+        ("donchian.yaml", Donchian, ("donchian_high", "sma_long", "atr")),
+        id="donchian",
     ),
 ]
 

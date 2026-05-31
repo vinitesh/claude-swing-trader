@@ -1,0 +1,30 @@
+# =====================================================================
+# Donchian-N breakout — pure trend-following
+#
+# Buy when close > prior N-day max-of-closes AND close > 200-SMA.
+# Exit via ATR-trailing stop (ratchets up). Hard stop as catastrophe floor.
+# Time stop is loose because trend-followers ride extended moves.
+# =====================================================================
+
+allocation_pct: 0.20            # 20% of strategy cap per position (max ~5 positions)
+risk_pct: 0.01                  # 1% account risk per trade (used for sizing only)
+capital_allocation_usd: 25000   # Match the others; will be revisited if 4 strategies → $20k each
+
+# Indicator periods
+donchian_period: 20             # rolling N-day high (20 = Turtles classic)
+sma_long: 200                   # uptrend filter
+# atr period is hardcoded to 14 in indicators (standard)
+
+# Entry filters
+min_atr_pct: 0.01               # ATR/close ≥ 1% — skip stagnant names
+require_bull_regime: false      # Strategy has its own regime gate (close > 200-SMA)
+avoid_earnings_within_days: 3   # Same hook as other strategies
+
+# Exit rules
+atr_mult: 2.0                   # trailing stop = highest_close - 2 × ATR(14)
+hard_stop_pct: 0.08             # 8% catastrophe stop, never moves
+take_profit_pct: 1.00           # 100% (effectively unused — exit on trail)
+time_stop_days: 60              # Force exit after 60 days
+
+# Universe override (uses global default if empty)
+universe: []

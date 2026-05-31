@@ -93,6 +93,23 @@ class Strategy(ABC):
         """
         return False
 
+    def update_trailing_stop(
+        self, position: Position, df: pd.DataFrame
+    ) -> float | None:
+        """Compute a new stop_loss for an open position based on indicators.
+
+        Called BEFORE should_exit_signal each bar. If the strategy returns a
+        new stop value > current stop, the backtester ratchets it up (trailing
+        stops never move down). Returning None means "leave stop unchanged".
+
+        Used by trend-following strategies that want a stop that follows
+        price up. Mean-reverters and pullback strategies should not override
+        — fixed stops are part of their design.
+
+        ``df`` includes today's bar.
+        """
+        return None
+
     # ---------------- Position sizing ----------------
     def position_size(
         self, account_value: float, entry_price: float, stop_loss: float

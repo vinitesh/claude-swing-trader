@@ -112,10 +112,22 @@ class Backtester:
                     continue
                 bar = df.loc[today_ts]
 
+                # Trailing-stop: ratchet stop up but never down. Strategy returns
+                # the new candidate; backtester only adopts if strictly higher
+                # than current stop (long positions only — short logic would mirror).
+                window = df.loc[:today_ts]
+                new_stop = self.strategy.update_trailing_stop(pos, window)
+                if (
+                    new_stop is not None
+                    and pos.side == "long"
+                    and pos.stop_loss is not None
+                    and new_stop > pos.stop_loss
+                ):
+                    pos.stop_loss = float(new_stop)
+
                 # Signal-based exit (e.g. RSI(2) > 70). Checked before bracket
                 # to give strategies a chance to take profit/loss on indicators
                 # rather than only on price-trigger levels.
-                window = df.loc[:today_ts]
                 if self.strategy.should_exit_signal(pos, window):
                     exit_price = float(bar["close"])
                     broker.close_position(sym, exit_price=exit_price)

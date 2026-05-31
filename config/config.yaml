@@ -37,6 +37,9 @@ strategies:
   - name: rsi2
     enabled: true
     config_file: rsi2.yaml
+  - name: donchian
+    enabled: false                 # gated until walk-forward sweep passes
+    config_file: donchian.yaml
 
 notifications:
   telegram:
