@@ -31,5 +31,10 @@ stop_loss_pct: 0.03             # 3% catastrophe stop (sweep favored 3% over 4%)
 take_profit_pct: 0.20           # Wide TP (effectively unused — exit on RSI)
 time_stop_days: 5               # Force exit after 5 days (sweep slight edge over 8)
 
+# Earnings filter — Connors's RSI(2) book explicitly recommends this for
+# mean-reversion. Earnings gaps wipe out small mean-reversion wins; skipping
+# the 1-3 trading days around an announcement is the standard fix.
+avoid_earnings_within_days: 3
+
 # Universe override (uses global default if empty)
 universe: []

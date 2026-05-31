@@ -34,5 +34,10 @@ stop_loss_pct: 0.02         # 2% below entry
 take_profit_pct: 0.06       # 6% above entry (3:1 reward:risk)
 time_stop_days: 15          # Exit if not profitable after 15 days
 
+# Earnings filter — skip entries within N calendar days of next earnings.
+# 0 = disabled. 3 = standard recommendation (Connors et al.) — covers the
+# announcement day plus 2 trading-day buffer for late-night/pre-market gaps.
+avoid_earnings_within_days: 3
+
 # Universe override (uses global default if empty)
 universe: []   # e.g., [AAPL, MSFT, ...]

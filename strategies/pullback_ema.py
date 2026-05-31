@@ -53,6 +53,17 @@ class PullbackEMA(Strategy):
             if regime is not None and not regime.is_bull(df.index[-1]):
                 return None
 
+        # Earnings filter (optional): skip if symbol has earnings within N
+        # calendar days. Same attachment pattern as regime_filter.
+        avoid_days = int(self.config.get("avoid_earnings_within_days", 0))
+        if avoid_days > 0:
+            earnings = getattr(self, "earnings_calendar", None)
+            symbol = df.attrs.get("symbol", "")
+            if earnings is not None and symbol:
+                today = df.index[-1].date() if hasattr(df.index[-1], "date") else None
+                if earnings.has_earnings_within(symbol, avoid_days, today=today):
+                    return None
+
         # Drop bars without all indicators populated
         if any(pd.isna(last[c]) for c in ("ema_fast", "sma_mid", "sma_slow", "rsi")):
             return None

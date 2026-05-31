@@ -136,7 +136,20 @@ class LiveRunner:
             )
             if not cfg.get("universe"):
                 cfg["universe"] = default_universe
-            out.append(registry[name](cfg))
+            strat = registry[name](cfg)
+            # Attach earnings calendar if strategy opted in. Single shared
+            # instance across all strategies to amortize the cache.
+            if int(cfg.get("avoid_earnings_within_days", 0)) > 0:
+                if not hasattr(self, "_earnings_calendar"):
+                    try:
+                        from data.earnings import EarningsCalendar
+                        self._earnings_calendar = EarningsCalendar()
+                    except Exception as e:
+                        log.warning("earnings calendar unavailable: %s", e)
+                        self._earnings_calendar = None
+                if self._earnings_calendar is not None:
+                    strat.earnings_calendar = self._earnings_calendar
+            out.append(strat)
             log.info("Loaded strategy: %s (%d symbols)", name, len(cfg["universe"]))
         return out
 

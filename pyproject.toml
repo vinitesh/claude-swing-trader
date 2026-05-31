@@ -8,6 +8,7 @@ dependencies = [
     # Broker & data
     "alpaca-py>=0.30.0",
     "yfinance>=0.2.40",
+    "lxml>=5.0.0",          # required by yfinance.get_earnings_dates()
     # Data processing
     "pandas>=2.2.0",
     "numpy>=1.26.0",

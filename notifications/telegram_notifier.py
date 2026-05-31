@@ -35,10 +35,12 @@ class TelegramNotifier(Notifier):
     def send(self, n: Notification) -> bool:
         text = self._format(n)
         url = f"{self.API_BASE}/bot{self.bot_token}/sendMessage"
+        # Use plain text. MarkdownV2 escaping for prices like "$100.50" and
+        # parens in body fields is brittle and doesn't add real value for our
+        # alerts. The bold title via MarkdownV2 wasn't worth the breakage.
         payload = {
             "chat_id": self.chat_id,
             "text": text,
-            "parse_mode": "MarkdownV2" if n.markdown else None,
             "disable_web_page_preview": True,
         }
         # Strip None
@@ -56,19 +58,9 @@ class TelegramNotifier(Notifier):
 
     @staticmethod
     def _format(n: Notification) -> str:
-        # MarkdownV2 has many reserved chars; we'll just bold the title and
-        # let the body be plain. Caller can pre-escape if needed.
-        if n.markdown:
-            title = TelegramNotifier._escape_md(n.title)
-            return f"*{title}*\n{n.body}"
-        return f"{n.title}\n\n{n.body}"
-
-    @staticmethod
-    def _escape_md(s: str) -> str:
-        # Bare-minimum escape for MarkdownV2 in title
-        for ch in r"_*[]()~`>#+-=|{}.!":
-            s = s.replace(ch, f"\\{ch}")
-        return s
+        # Plain text — emoji + ALL CAPS already provide visual hierarchy in
+        # Telegram. The earlier MarkdownV2 attempt broke on $ and . in prices.
+        return f"{n.title}\n{n.body}"
 
 
 # ----------------- formatters -----------------

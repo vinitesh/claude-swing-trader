@@ -66,6 +66,18 @@ class Backtester:
         except Exception as e:
             print(f"  ! regime filter unavailable, proceeding without: {e}")
 
+        # Attach earnings calendar if the strategy opts in via config.
+        # NOTE: in BACKTESTS this filter does nothing useful — yfinance only
+        # reports FUTURE earnings dates relative to today, not historical ones.
+        # That's fine; we still attach so the live runner uses the same code
+        # path. Backtest results are unaffected (filter never matches in past).
+        if int(self.strategy.config.get("avoid_earnings_within_days", 0)) > 0:
+            try:
+                from data.earnings import EarningsCalendar
+                self.strategy.earnings_calendar = EarningsCalendar()
+            except Exception as e:
+                print(f"  ! earnings filter unavailable, proceeding without: {e}")
+
         # 1. Load + prep data for every symbol
         bars: dict[str, pd.DataFrame] = {}
         for sym in symbols:
