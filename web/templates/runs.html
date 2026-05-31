@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Runs — swing_platform{% endblock %}
+{% block content %}
+<h2>Run history</h2>
+{% if runs %}
+<figure>
+<table role="grid">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Started (UTC)</th>
+            <th>Mode</th>
+            <th>Strategies</th>
+            <th class="num">Signals</th>
+            <th class="num">Submitted</th>
+            <th class="num">Skipped</th>
+            <th class="num">Rejected</th>
+            <th class="num">Duration</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in runs %}
+        <tr>
+            <td><a href="/runs/{{ r.id }}">{{ r.id }}</a></td>
+            <td>{{ r.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>{{ r.mode }}</td>
+            <td>{{ r.strategies_run }}</td>
+            <td class="num">{{ r.signals_found }}</td>
+            <td class="num">{{ r.orders_submitted }}</td>
+            <td class="num">{{ r.orders_skipped }}</td>
+            <td class="num">{{ r.orders_rejected }}</td>
+            <td class="num">{% if r.duration_secs %}{{ '%.1f'|format(r.duration_secs) }}s{% else %}—{% endif %}</td>
+            <td>{% if r.error %}<span style="color:#c00">err</span>{% elif r.finished_at %}ok{% else %}…{% endif %}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% else %}
+<p><em>No runs yet.</em></p>
+{% endif %}
+{% endblock %}

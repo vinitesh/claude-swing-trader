@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}swing_platform{% endblock %}</title>
+    <link rel="stylesheet" href="/static/pico.min.css">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="container-fluid topnav">
+    <nav>
+        <ul>
+            <li><strong>📈 swing_platform</strong></li>
+        </ul>
+        <ul>
+            <li><a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a></li>
+            <li><a href="/charts" class="{% if active_page == 'charts' %}active{% endif %}">Charts</a></li>
+            <li><a href="/runs" class="{% if active_page == 'runs' %}active{% endif %}">Runs</a></li>
+            <li><a href="/config" class="{% if active_page == 'config' %}active{% endif %}">Config</a></li>
+        </ul>
+    </nav>
+</header>
+<main class="container">
+    {% block content %}{% endblock %}
+</main>
+<footer class="container">
+    <small>swing_platform · read-only UI</small>
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>

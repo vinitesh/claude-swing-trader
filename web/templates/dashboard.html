@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — swing_platform{% endblock %}
+{% block content %}
+<h2>Dashboard</h2>
+
+<section>
+    <h3>Health</h3>
+    {% if health.last_run_at %}
+    <article>
+        <header>
+            Last run:
+            <strong>{{ health.last_run_at.strftime('%Y-%m-%d %H:%M UTC') }}</strong>
+            ({{ health.last_run_mode }})
+            {% if health.hours_since_last_run is not none %}
+                — {{ '%.1f'|format(health.hours_since_last_run) }}h ago
+            {% endif %}
+        </header>
+        <table>
+            <tr><th>Signals found</th><td>{{ health.last_run_signals }}</td></tr>
+            <tr><th>Orders submitted</th><td>{{ health.last_run_orders }}</td></tr>
+            <tr><th>Runs in last 7 days</th><td>{{ health.runs_last_7d }}</td></tr>
+        </table>
+        {% if health.last_run_error %}
+        <p><strong style="color:#c00">Last error:</strong> {{ health.last_run_error }}</p>
+        {% endif %}
+        {% if health.hours_since_last_run is not none and health.hours_since_last_run > 36 %}
+        <p style="color:#c00"><strong>⚠️ Warning:</strong> No run in over 36 hours — cron may be broken.</p>
+        {% endif %}
+    </article>
+    {% else %}
+    <p><em>No runs yet. The first cron-scheduled run-live will populate this.</em></p>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Strategy bake-off</h3>
+    {% if strategies %}
+    <figure>
+    <table role="grid">
+        <thead>
+            <tr>
+                <th>Strategy</th>
+                <th class="num">Signals</th>
+                <th class="num">Orders</th>
+                <th class="num">Open</th>
+                <th class="num">Closed</th>
+                <th class="num">Realized P&L</th>
+                <th class="num">Win %</th>
+                <th class="num">Avg win</th>
+                <th class="num">Avg loss</th>
+                <th class="num">PF</th>
+                <th class="num">Hold (d)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in strategies %}
+            <tr>
+                <td><strong>{{ r.strategy_name }}</strong></td>
+                <td class="num">{{ r.signals_total }}</td>
+                <td class="num">{{ r.orders_submitted }}</td>
+                <td class="num">{{ r.positions_open }}</td>
+                <td class="num">{{ r.positions_closed }}</td>
+                <td class="num {% if r.realized_pnl > 0 %}pos{% elif r.realized_pnl < 0 %}neg{% endif %}">
+                    ${{ "{:+,.2f}".format(r.realized_pnl) }}
+                </td>
+                <td class="num">{% if r.positions_closed %}{{ '%.1f'|format(r.win_rate * 100) }}%{% else %}—{% endif %}</td>
+                <td class="num">{% if r.num_wins %}${{ '%.2f'|format(r.avg_win) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if r.num_losses %}${{ '%.2f'|format(r.avg_loss) }}{% else %}—{% endif %}</td>
+                <td class="num">
+                    {% if not r.positions_closed %}—
+                    {% elif r.profit_factor == float('inf') %}∞
+                    {% else %}{{ '%.2f'|format(r.profit_factor) }}
+                    {% endif %}
+                </td>
+                <td class="num">{% if r.avg_hold_days %}{{ '%.1f'|format(r.avg_hold_days) }}{% else %}—{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </figure>
+    {% else %}
+    <p><em>No strategy data yet.</em></p>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Open positions ({{ open_positions|length }})</h3>
+    {% if open_positions %}
+    <figure>
+    <table role="grid">
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th>Strategy</th>
+                <th class="num">Qty</th>
+                <th class="num">Entry</th>
+                <th class="num">Stop</th>
+                <th class="num">Target</th>
+                <th class="num">Days open</th>
+                <th>Opened</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for p in open_positions %}
+            <tr>
+                <td><strong>{{ p.symbol }}</strong></td>
+                <td>{{ p.strategy_name }}</td>
+                <td class="num">{{ p.qty }}</td>
+                <td class="num">${{ '%.2f'|format(p.avg_entry_price) }}</td>
+                <td class="num">{% if p.stop_loss %}${{ '%.2f'|format(p.stop_loss) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if p.take_profit %}${{ '%.2f'|format(p.take_profit) }}{% else %}—{% endif %}</td>
+                <td class="num">{{ p.days_open }}</td>
+                <td>{{ p.opened_at.strftime('%Y-%m-%d') }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </figure>
+    {% else %}
+    <p><em>No open positions.</em></p>
+    {% endif %}
+</section>
+{% endblock %}

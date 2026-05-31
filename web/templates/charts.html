@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Charts — swing_platform{% endblock %}
+{% block content %}
+<h2>Strategy Analytics</h2>
+
+{% if not has_data %}
+<article>
+    <p><em>No closed trades yet. Charts will populate after positions begin to close — typically 1-2 weeks after paper trading starts.</em></p>
+</article>
+{% else %}
+
+<section>
+    <h3>Combined equity curve</h3>
+    <p><small>Cumulative realized P&L across all strategies. Doesn't include open positions' unrealized P&L yet.</small></p>
+    <canvas id="combinedEquity" height="100"></canvas>
+</section>
+
+<section>
+    <h3>Per-strategy equity curves</h3>
+    <p><small>Same metric, broken out by strategy. The lines should diverge in different market regimes — that's the diversification you want.</small></p>
+    <canvas id="strategyEquity" height="100"></canvas>
+</section>
+
+<section>
+    <h3>Daily P&L</h3>
+    <p><small>Sum of P&L from positions closed each day. Useful for spotting bad streaks.</small></p>
+    <canvas id="dailyPnl" height="100"></canvas>
+</section>
+
+<section>
+    <h3>Trade outcome distribution</h3>
+    <p><small>Histogram of individual trade P&L per strategy. Mean-reversion strategies (RSI(2)) typically show many small wins + a few small losses; trend-following shows the opposite shape.</small></p>
+    <canvas id="tradeHist" height="100"></canvas>
+</section>
+
+<section>
+    <h3>Signals per day</h3>
+    <p><small>Last 90 days of scanner output. Big spikes often precede market regime shifts.</small></p>
+    <canvas id="signalsTimeline" height="100"></canvas>
+</section>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+const DATA = {{ data_json | safe }};
+{% if has_data %}
+(function() {
+  const COLORS = ['#0072b2', '#d55e00', '#009e73', '#cc79a7', '#56b4e9', '#e69f00', '#999'];
+  const colorFor = (i) => COLORS[i % COLORS.length];
+
+  // 1. Combined equity
+  new Chart(document.getElementById('combinedEquity'), {
+    type: 'line',
+    data: {
+      labels: DATA.combined_equity.map(p => p.day),
+      datasets: [{
+        label: 'Cumulative realized P&L ($)',
+        data: DATA.combined_equity.map(p => p.cum_pnl),
+        borderColor: '#0072b2', backgroundColor: 'rgba(0,114,178,.1)',
+        tension: 0.1, fill: true,
+      }],
+    },
+    options: { responsive: true, plugins: { legend: { display: false } } },
+  });
+
+  // 2. Per-strategy equity
+  new Chart(document.getElementById('strategyEquity'), {
+    type: 'line',
+    data: {
+      datasets: DATA.per_strategy.map((sd, i) => ({
+        label: sd.name,
+        data: sd.equity.map(p => ({ x: p.day, y: p.cum_pnl })),
+        borderColor: colorFor(i),
+        backgroundColor: colorFor(i) + '33',
+        tension: 0.1,
+      })),
+    },
+    options: {
+      responsive: true,
+      scales: { x: { type: 'category' } },
+    },
+  });
+
+  // 3. Daily P&L (per strategy stacked)
+  // We'll stack by day across strategies for visibility
+  const allDays = new Set();
+  DATA.per_strategy.forEach(sd => sd.daily.forEach(d => allDays.add(d.day)));
+  const sortedDays = Array.from(allDays).sort();
+  const dailyDatasets = DATA.per_strategy.map((sd, i) => {
+    const map = Object.fromEntries(sd.daily.map(d => [d.day, d.pnl]));
+    return {
+      label: sd.name,
+      data: sortedDays.map(day => map[day] || 0),
+      backgroundColor: colorFor(i),
+    };
+  });
+  new Chart(document.getElementById('dailyPnl'), {
+    type: 'bar',
+    data: { labels: sortedDays, datasets: dailyDatasets },
+    options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true } } },
+  });
+
+  // 4. Trade outcome histogram
+  // Bucket by $25 increments per strategy
+  const allPnls = DATA.per_strategy.flatMap(sd => sd.trade_pnls);
+  const minP = Math.min(...allPnls, 0);
+  const maxP = Math.max(...allPnls, 0);
+  const binSize = Math.max(25, Math.ceil((maxP - minP) / 30));
+  const binStart = Math.floor(minP / binSize) * binSize;
+  const binEnd   = Math.ceil(maxP / binSize) * binSize;
+  const nBins = Math.max(1, Math.round((binEnd - binStart) / binSize));
+  const bins = [];
+  for (let i = 0; i < nBins; i++) bins.push(binStart + i * binSize);
+  const histDatasets = DATA.per_strategy.map((sd, i) => {
+    const counts = new Array(nBins).fill(0);
+    sd.trade_pnls.forEach(p => {
+      const idx = Math.min(nBins - 1, Math.max(0, Math.floor((p - binStart) / binSize)));
+      counts[idx] += 1;
+    });
+    return { label: sd.name, data: counts, backgroundColor: colorFor(i) };
+  });
+  new Chart(document.getElementById('tradeHist'), {
+    type: 'bar',
+    data: { labels: bins.map(b => `$${b}`), datasets: histDatasets },
+    options: { responsive: true },
+  });
+
+  // 5. Signals per day timeline
+  new Chart(document.getElementById('signalsTimeline'), {
+    type: 'bar',
+    data: {
+      labels: DATA.signals_per_day.map(p => p.day),
+      datasets: [{
+        label: 'Signals',
+        data: DATA.signals_per_day.map(p => p.n),
+        backgroundColor: '#56b4e9',
+      }],
+    },
+    options: { responsive: true, plugins: { legend: { display: false } } },
+  });
+})();
+{% endif %}
+</script>
+{% endblock %}

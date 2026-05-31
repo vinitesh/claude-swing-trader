@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     max_open_positions: int = 8
     daily_loss_limit_pct: float = 0.03
 
+    # Web UI
+    web_username: str = "admin"
+    web_password: str = ""               # empty disables web (returns 503)
+    web_host: str = "0.0.0.0"
+    web_port: int = 8082
+
 
 # ---------------- YAML config ----------------
 def load_yaml(path: Path) -> dict[str, Any]:

@@ -62,6 +62,24 @@ services:
     tty: true
     profiles: ["debug"]
 
+  # Long-running web UI. Unlike the jobs above, this stays up and serves
+  # HTTP. No `profiles` — it starts with plain `docker compose up -d web`.
+  web:
+    build: .
+    image: swing-platform:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////app/state/trading.db
+    volumes:
+      - swing-state:/app/state
+      - swing-logs:/app/logs
+      - swing-cache:/app/data_cache
+      - ./config:/app/config:ro
+    command: ["serve"]
+    ports:
+      - "8082:8082"
+    restart: unless-stopped
+
 volumes:
   swing-state:
   swing-logs:

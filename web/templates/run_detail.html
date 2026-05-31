@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.id }} — swing_platform{% endblock %}
+{% block content %}
+<h2><a href="/runs">← runs</a> / Run #{{ run.id }}</h2>
+
+<article>
+    <table>
+        <tr><th>Started</th><td>{{ run.started_at }}</td></tr>
+        <tr><th>Finished</th><td>{{ run.finished_at or '—' }}</td></tr>
+        <tr><th>Mode</th><td>{{ run.mode }}</td></tr>
+        <tr><th>Strategies</th><td>{{ run.strategies_run }}</td></tr>
+        <tr><th>Signals found</th><td>{{ run.signals_found }}</td></tr>
+        <tr><th>Submitted</th><td>{{ run.orders_submitted }}</td></tr>
+        <tr><th>Skipped (idempotent)</th><td>{{ run.orders_skipped }}</td></tr>
+        <tr><th>Rejected (risk)</th><td>{{ run.orders_rejected }}</td></tr>
+        {% if run.error %}<tr><th>Error</th><td style="color:#c00">{{ run.error }}</td></tr>{% endif %}
+    </table>
+</article>
+
+<h3>Signals ({{ signals|length }})</h3>
+{% if signals %}
+<figure>
+<table role="grid">
+    <thead>
+        <tr>
+            <th>Bar date</th>
+            <th>Strategy</th>
+            <th>Symbol</th>
+            <th>Action</th>
+            <th class="num">Entry</th>
+            <th class="num">Stop</th>
+            <th class="num">Target</th>
+            <th>Order</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for s in signals %}
+        <tr>
+            <td>{{ s.bar_date.strftime('%Y-%m-%d') }}</td>
+            <td>{{ s.strategy_name }}</td>
+            <td><strong>{{ s.symbol }}</strong></td>
+            <td>{{ s.action }}</td>
+            <td class="num">${{ '%.2f'|format(s.entry_price) }}</td>
+            <td class="num">${{ '%.2f'|format(s.stop_loss) }}</td>
+            <td class="num">${{ '%.2f'|format(s.take_profit) }}</td>
+            <td>
+                {% if s.has_order %}{{ s.order_status }}{% else %}<em>none</em>{% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% else %}
+<p><em>No signals recorded for this run.</em></p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ rel_path }} — swing_platform{% endblock %}
+{% block content %}
+<h2><a href="/config">← config</a> / {{ rel_path }}</h2>
+<p><small>Read-only.</small></p>
+<pre style="background:#f7f7f9; padding:1rem; border-radius:6px; overflow-x:auto;"><code>{{ body }}</code></pre>
+{% endblock %}

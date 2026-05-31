@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Configuration — swing_platform{% endblock %}
+{% block content %}
+<h2>Configuration files</h2>
+<p><small>Read-only view. To edit YAML, ssh into the host and edit on disk; changes take effect on the next run-live invocation (or browser refresh here).</small></p>
+
+{% if files %}
+<ul>
+    {% for display, rel in files %}
+        <li><a href="/config/{{ rel }}">{{ display }}</a></li>
+    {% endfor %}
+</ul>
+{% else %}
+<p><em>No YAML config files found.</em></p>
+{% endif %}
+{% endblock %}

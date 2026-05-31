@@ -282,5 +282,20 @@ def report(strategy: str | None, as_json: bool) -> None:
     console.print(table)
 
 
+@cli.command("serve")
+@click.option("--host", default=None, help="Override host (default: WEB_HOST or 0.0.0.0)")
+@click.option("--port", default=None, type=int, help="Override port (default: WEB_PORT or 8082)")
+def serve(host: str | None, port: int | None) -> None:
+    """Run the read-only web UI (FastAPI + uvicorn)."""
+    import uvicorn
+    settings, _ = init()
+    bind_host = host or settings.web_host
+    bind_port = port or settings.web_port
+    if not (settings.web_password or "").strip():
+        console.print("[yellow]⚠ WEB_PASSWORD is empty in .env — every protected route will return 503.[/yellow]")
+    console.print(f"[bold]Starting web UI on {bind_host}:{bind_port}[/bold]")
+    uvicorn.run("web.main:app", host=bind_host, port=bind_port, log_level=settings.log_level.lower())
+
+
 if __name__ == "__main__":
     cli()

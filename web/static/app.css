@@ -1,0 +1,18 @@
+/* swing_platform — small overrides on top of pico.css */
+
+.topnav { padding: 0.5rem 1rem; border-bottom: 1px solid var(--pico-muted-border-color); margin-bottom: 1rem; }
+.topnav nav ul { margin-bottom: 0; }
+.topnav nav ul li a.active { font-weight: 700; text-decoration: underline; }
+
+main.container { padding-bottom: 4rem; }
+section { margin-bottom: 2.5rem; }
+
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pos { color: #2e7d32; font-weight: 600; }
+.neg { color: #c62828; font-weight: 600; }
+
+table th, table td { padding: 0.4rem 0.6rem; }
+
+footer { text-align: center; color: var(--pico-muted-color); margin-top: 2rem; }
+
+canvas { max-width: 100%; }
