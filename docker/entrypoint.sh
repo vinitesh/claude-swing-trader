@@ -7,7 +7,7 @@
 # signal than a stack trace deep in loguru.
 set -e
 
-for dir in /app/logs /app/data_cache /app/backtest_results; do
+for dir in /app/logs /app/data_cache /app/backtest_results /app/state; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir" 2>/dev/null || {
             echo "ERROR: cannot create $dir — check volume mount and host permissions" >&2

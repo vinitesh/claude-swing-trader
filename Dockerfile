@@ -72,8 +72,8 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1
 
 # Pre-create mount points so a fresh container has writable dirs even
-# if the host hasn't created them yet.
-RUN mkdir -p /app/logs /app/data_cache /app/backtest_results \
+# if the host hasn't created them yet. /app/state holds trading.db.
+RUN mkdir -p /app/logs /app/data_cache /app/backtest_results /app/state \
     && chown -R swing:swing /app
 
 USER swing
