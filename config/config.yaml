@@ -40,7 +40,7 @@ strategies:
 
 notifications:
   telegram:
-    enabled: false   # flip to true once env vars set
+    enabled: true    # set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in .env
 
 logging:
   level: INFO

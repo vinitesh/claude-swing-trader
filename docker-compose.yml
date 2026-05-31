@@ -1,87 +1,62 @@
 # =====================================================================
 # docker-compose.yml — local & EC2-host orchestration for swing_platform
 #
-# Three named services, all sharing the same image and volumes:
-#   run-live   — daily scan + (optionally real) order submission
-#   sync       — reconcile DB ↔ broker; closes positions broker no longer holds
-#   shell      — interactive shell inside the container (debug / one-offs)
+# Services (all share `x-job` template):
+#   run-live      — daily scan + real order submission
+#   run-live-dry  — same, but no broker submission (smoke / debug)
+#   sync          — reconcile DB ↔ broker
+#   report        — print per-strategy bake-off table
+#   shell         — interactive bash for one-offs
 #
 # Volumes:
 #   swing-state — holds trading.db (single source of truth for our app)
-#   swing-logs  — application + cron logs (rotates via host logrotate on EC2)
+#   swing-logs  — application + cron logs (rotated by host logrotate on EC2)
 #   swing-cache — yfinance parquet cache (rebuilds itself; safe to wipe)
+#
+# Bind mount:
+#   ./config:/app/config:ro — strategy YAML lives outside the image so
+#   parameter tweaks don't require a rebuild. Read-only inside container.
 #
 # Cron on EC2 invokes:
 #     docker compose run --rm run-live
 #     docker compose run --rm sync
 # That keeps the runtime model identical between laptop and EC2.
 #
-# Use both `docker compose` and `podman compose` — same file.
+# Use either `docker compose` or `podman compose` — same file.
 # =====================================================================
+
+x-job: &job
+  build: .
+  image: swing-platform:latest
+  env_file: .env
+  environment:
+    DATABASE_URL: sqlite:////app/state/trading.db
+  volumes:
+    - swing-state:/app/state
+    - swing-logs:/app/logs
+    - swing-cache:/app/data_cache
+    - ./config:/app/config:ro
+  profiles: ["jobs"]
 
 services:
   run-live:
-    build: .
-    image: swing-platform:latest
-    env_file: .env
-    environment:
-      DATABASE_URL: sqlite:////app/state/trading.db
-    volumes:
-      - swing-state:/app/state
-      - swing-logs:/app/logs
-      - swing-cache:/app/data_cache
+    <<: *job
     command: ["run-live"]
-    profiles: ["jobs"]   # `compose run` only; never `compose up`
 
   run-live-dry:
-    build: .
-    image: swing-platform:latest
-    env_file: .env
-    environment:
-      DATABASE_URL: sqlite:////app/state/trading.db
-    volumes:
-      - swing-state:/app/state
-      - swing-logs:/app/logs
-      - swing-cache:/app/data_cache
+    <<: *job
     command: ["run-live", "--dry-run"]
-    profiles: ["jobs"]
 
   sync:
-    build: .
-    image: swing-platform:latest
-    env_file: .env
-    environment:
-      DATABASE_URL: sqlite:////app/state/trading.db
-    volumes:
-      - swing-state:/app/state
-      - swing-logs:/app/logs
-      - swing-cache:/app/data_cache
+    <<: *job
     command: ["sync"]
-    profiles: ["jobs"]
 
   report:
-    build: .
-    image: swing-platform:latest
-    env_file: .env
-    environment:
-      DATABASE_URL: sqlite:////app/state/trading.db
-    volumes:
-      - swing-state:/app/state
-      - swing-logs:/app/logs
-      - swing-cache:/app/data_cache
+    <<: *job
     command: ["report"]
-    profiles: ["jobs"]
 
   shell:
-    build: .
-    image: swing-platform:latest
-    env_file: .env
-    environment:
-      DATABASE_URL: sqlite:////app/state/trading.db
-    volumes:
-      - swing-state:/app/state
-      - swing-logs:/app/logs
-      - swing-cache:/app/data_cache
+    <<: *job
     entrypoint: ["/usr/bin/tini", "--", "/bin/bash"]
     stdin_open: true
     tty: true
