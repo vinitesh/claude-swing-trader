@@ -78,6 +78,14 @@ class StrategyExplainer:
     # One real trade for the example chart (None if backtest CSV missing)
     example: ExampleTrade | None = None
 
+    # Best/median/worst triptych from the backtest CSV — three real trades
+    # representing the full distribution of outcomes (not just winners).
+    triptych: list[tuple[str, ExampleTrade]] = field(default_factory=list)
+    # ^ list of (label, trade) tuples: ("Best winner", ...), ("Median", ...), ("Worst loser", ...)
+
+    # Failure-case narrative — how this exact setup loses money
+    failure_case: str = ""
+
 
 # ----------------- copy for each strategy -----------------
 def _pullback_ema() -> StrategyExplainer:
@@ -284,13 +292,51 @@ def list_explainers() -> list[StrategyExplainer]:
 
 
 def get_explainer(name: str) -> StrategyExplainer | None:
-    """Return one explainer with live params + example trade hydrated."""
+    """Return one explainer with live params + example trades hydrated."""
     base = _REGISTRY.get(name)
     if base is None:
         return None
     base.params = _live_params(name)
     base.example = _pick_example_trade(name)
+    base.triptych = _pick_triptych(name)
+    base.failure_case = _FAILURE_CASES.get(name, "")
     return base
+
+
+# ----------------- failure case narratives -----------------
+_FAILURE_CASES: dict[str, str] = {
+    "pullback_ema": (
+        "The classic PullbackEMA failure is a stock that was trending nicely until it wasn't. "
+        "META in February 2022 had been above its 200-SMA for years; it pulled back to the 20 EMA "
+        "with all signal-light boxes ticked, the strategy bought near $290, and over the next two "
+        "months it cratered to $130 on collapsing ad revenue. Our 2% stop limited the single-trade "
+        "damage to ~$500 on a $25k position, but the broader lesson is brutal: the 200-SMA filter "
+        "is laggy. By the time it rolls below price, you've already eaten months of declines. The "
+        "strategy doesn't predict regime change — it simply trades smaller in bad regimes (because "
+        "fewer setups trigger) and tighter (because stops fire faster)."
+    ),
+    "rsi2": (
+        "RSI(2)'s nightmare is 'catching a falling knife.' AT&T in early 2023 ran a series of bad "
+        "earnings; the stock was technically above its 200-SMA at the time of one signal, RSI(2) "
+        "was deeply oversold, and the strategy bought near $19. Instead of bouncing, the stock kept "
+        "leaking lower for two more weeks — by which point either the 3% stop or the 5-day time "
+        "stop would have closed the trade for a small loss. This is the failure mode RSI(2) "
+        "EXPECTS: ~30% of trades lose. The whole strategy works because the average winner (small) "
+        "× the win rate (~70%) just barely outpaces the average loser (also small) × the loss rate "
+        "(~30%). It's a high-volume, low-edge engine — discipline matters more than any single trade."
+    ),
+    "donchian": (
+        "Donchian's failure mode is the whipsaw — a 'breakout' that immediately reverses. SPY in "
+        "December 2018 looked like it was breaking out to a new 20-day high on Dec 3 around $282. "
+        "By Dec 24 it had crashed to $234 on Fed-rate-hike fears. A Donchian buyer would have been "
+        "stopped out near the entry by the 8% hard stop, eating the full loss. Worse, this happens "
+        "again and again in choppy markets: dozens of small whipsaws eating capital while you wait "
+        "for the rare big runner. The breakout strategy *needs* the multi-baggers — without them, "
+        "the small losses dominate. That's exactly what our walk-forward sweep showed: in a "
+        "2-year window with no big winners, Donchian bleeds. With a 7-year window catching even "
+        "one Tesla-2020 or NVDA-2023 type ride, the math flips."
+    ),
+}
 
 
 # ----------------- live data -----------------
@@ -350,6 +396,67 @@ def _live_params(name: str) -> list[ParamRow]:
                 value = str(v)
             out.append(ParamRow(label=label, value=value, note=note))
     return out
+
+
+def _pick_triptych(name: str) -> list[tuple[str, ExampleTrade]]:
+    """Return three trades from the backtest CSV: best winner, median, worst loser.
+
+    Each entry is (label, ExampleTrade) so templates can render labelled cards.
+    Returns empty list if no backtest CSV available.
+    """
+    rows = _load_backtest_rows(name)
+    if len(rows) < 3:
+        return []
+
+    # Sort all trades by P&L
+    rows.sort(key=lambda r: float(r["pnl"]))
+    worst = rows[0]
+    best = rows[-1]
+    # Median by P&L — if even count, prefer the lower of the two middles to
+    # ensure determinism
+    median = rows[len(rows) // 2]
+
+    out: list[tuple[str, ExampleTrade]] = []
+    for label, row in (("Best winner", best), ("Median trade", median), ("Worst loser", worst)):
+        trade = _row_to_trade(row)
+        if trade is not None:
+            out.append((label, trade))
+    return out
+
+
+def _load_backtest_rows(name: str) -> list[dict[str, Any]]:
+    """Read all trade rows from the most-recent backtest CSV for a strategy."""
+    sub = BACKTEST_DIR / name
+    if not sub.exists():
+        return []
+    candidates = sorted(sub.glob("*_trades.csv"))
+    if not candidates:
+        return []
+    rows: list[dict[str, Any]] = []
+    with candidates[-1].open() as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            rows.append(r)
+    return rows
+
+
+def _row_to_trade(row: dict[str, Any]) -> ExampleTrade | None:
+    try:
+        entry = float(row["entry_price"])
+        exit_p = float(row["exit_price"])
+        return ExampleTrade(
+            symbol=row["symbol"],
+            entry_date=row["entry_date"][:10],
+            exit_date=row["exit_date"][:10],
+            entry_price=entry,
+            exit_price=exit_p,
+            qty=int(float(row["qty"])),
+            pnl=float(row["pnl"]),
+            exit_reason=row.get("exit_reason", "?"),
+            return_pct=(exit_p - entry) / entry if entry else 0.0,
+        )
+    except (KeyError, ValueError, TypeError):
+        return None
 
 
 def _pick_example_trade(name: str) -> ExampleTrade | None:

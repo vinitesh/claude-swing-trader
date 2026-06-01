@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from core.config import init
 from persistence.db import session_scope
 from web.auth import require_auth
+from web import example_charts
 from web import explainers as exp
 from web import queries as q
 
@@ -150,9 +151,27 @@ def strategy_detail(name: str, request: Request, _user: str = Depends(require_au
     item = exp.get_explainer(name)
     if item is None:
         raise HTTPException(404, f"Strategy {name!r} not found")
+    textbook = example_charts.get_textbook_example(name)
+    textbook_payload = None
+    if textbook is not None and textbook.bars:
+        textbook_payload = json.dumps({
+            "symbol": textbook.symbol,
+            "title": textbook.title,
+            "narrative": textbook.narrative,
+            "entry_date": textbook.entry_date.isoformat(),
+            "exit_date": textbook.exit_date.isoformat(),
+            "entry_label": textbook.entry_label,
+            "exit_label": textbook.exit_label,
+            "bars": textbook.bars,
+        })
     return templates.TemplateResponse(
         request, "strategy_detail.html",
-        {"strategy": item, "active_page": "strategies"},
+        {
+            "strategy": item,
+            "textbook": textbook,
+            "textbook_json": textbook_payload,
+            "active_page": "strategies",
+        },
     )
 
 

@@ -39,3 +39,21 @@ canvas { max-width: 100%; }
 /* Glossary */
 dl dt { margin-top: .5rem; }
 dl dd { margin-left: 1.25rem; color: #555; }
+
+/* Triptych — best/median/worst trade cards */
+.triptych { display: grid; gap: 1rem; grid-template-columns: 1fr; margin: 0; }
+@media (min-width: 768px) {
+    .triptych { grid-template-columns: repeat(3, 1fr); }
+}
+.triptych-card {
+    padding: .75rem 1rem;
+    background: #fafafa;
+    border-radius: 6px;
+    margin: 0;
+    border-left: 3px solid #999;
+}
+.triptych-card.win  { border-left-color: #2e7d32; }
+.triptych-card.loss { border-left-color: #c62828; }
+.triptych-card table { margin: .5rem 0 0 0; font-size: .9em; }
+.triptych-card table th { font-weight: 500; color: #666; padding: 2px 6px 2px 0; }
+.triptych-card table td { padding: 2px 6px; }

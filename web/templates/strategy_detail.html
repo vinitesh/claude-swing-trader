@@ -34,6 +34,27 @@
   <p>{{ strategy.why_it_works }}</p>
 </section>
 
+{% if textbook and textbook.bars %}
+<section>
+  <h3>📖 Real-world example: {{ textbook.title }}</h3>
+  <p>{{ textbook.narrative }}</p>
+  <canvas id="textbookChart" height="100"></canvas>
+  <p><small>
+    <strong style="color:{{ strategy.color }};">●</strong>
+    {{ textbook.entry_label }} on {{ textbook.entry_date }}
+    &nbsp;·&nbsp;
+    <strong style="color:#2e7d32;">●</strong>
+    {{ textbook.exit_label }} on {{ textbook.exit_date }}
+  </small></p>
+</section>
+{% elif textbook and textbook.error %}
+<section>
+  <h3>📖 Real-world example: {{ textbook.title }}</h3>
+  <p>{{ textbook.narrative }}</p>
+  <p><em><small>{{ textbook.error }}</small></em></p>
+</section>
+{% endif %}
+
 <section>
   <h3>Entry decision flowchart</h3>
   <p><small>
@@ -43,25 +64,43 @@
   <pre class="mermaid" style="background:#f7f7f9;padding:1rem;border-radius:6px;">{{ strategy.entry_flowchart }}</pre>
 </section>
 
-{% if strategy.example %}
+{% if strategy.triptych %}
 <section>
-  <h3>Recent example trade</h3>
+  <h3>📊 What real backtest trades look like</h3>
   <p><small>
-    A real trade from the backtest CSV — picked deterministically (median winner) so this page is
-    stable. The annotated chart shows entry day, exit day, and the daily closing price between.
+    Three real trades from the strategy's walk-forward backtest, showing the full distribution of outcomes.
+    Best winner pays for many median trades; the worst loser is what risk management exists to bound.
   </small></p>
 
-  <article>
-    <table>
-      <tr><th>Symbol</th><td><strong>{{ strategy.example.symbol }}</strong></td></tr>
-      <tr><th>Entry</th><td>{{ strategy.example.entry_date }} &middot; ${{ '%.2f'|format(strategy.example.entry_price) }}</td></tr>
-      <tr><th>Exit</th><td>{{ strategy.example.exit_date }} &middot; ${{ '%.2f'|format(strategy.example.exit_price) }} &middot; <em>{{ strategy.example.exit_reason }}</em></td></tr>
-      <tr><th>Quantity</th><td>{{ strategy.example.qty }} shares</td></tr>
-      <tr><th>P&amp;L</th><td class="pos">${{ '%.2f'|format(strategy.example.pnl) }} ({{ '%.2f'|format(strategy.example.return_pct * 100) }}%)</td></tr>
-    </table>
-  </article>
+  <div class="triptych">
+    {% for label, t in strategy.triptych %}
+      <article class="triptych-card {% if t.pnl > 0 %}win{% else %}loss{% endif %}">
+        <header>
+          <strong>{{ label }}</strong><br>
+          <small>{{ t.symbol }} · {{ t.entry_date }} → {{ t.exit_date }}</small>
+        </header>
+        <table>
+          <tr><th>Entry</th><td class="num">${{ '%.2f'|format(t.entry_price) }}</td></tr>
+          <tr><th>Exit</th><td class="num">${{ '%.2f'|format(t.exit_price) }}</td></tr>
+          <tr><th>Reason</th><td><em>{{ t.exit_reason }}</em></td></tr>
+          <tr>
+            <th>P&amp;L</th>
+            <td class="num {% if t.pnl > 0 %}pos{% else %}neg{% endif %}">
+              ${{ '{:+,.2f}'.format(t.pnl) }}
+              <small>({{ '{:+.2f}'.format(t.return_pct * 100) }}%)</small>
+            </td>
+          </tr>
+        </table>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
-  <canvas id="exampleChart" height="100"></canvas>
+{% if strategy.failure_case %}
+<section>
+  <h3>⚠️ How this strategy loses money</h3>
+  <p>{{ strategy.failure_case }}</p>
 </section>
 {% endif %}
 
@@ -116,51 +155,54 @@
 <script>
   mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
 </script>
-{% if strategy.example %}
+{% if textbook_json %}
 <script src="/static/chart.umd.min.js"></script>
 <script>
 (function() {
-  // Simple chart: entry → exit prices linearly interpolated.
-  // We don't have intermediate daily closes loaded — that's intentional: this
-  // is a tutorial illustration, not the actual price path. Annotates entry/exit
-  // levels so the user sees stop and target context.
-  const ex = {
-    symbol: "{{ strategy.example.symbol }}",
-    entryDate: "{{ strategy.example.entry_date }}",
-    exitDate: "{{ strategy.example.exit_date }}",
-    entryPrice: {{ strategy.example.entry_price }},
-    exitPrice: {{ strategy.example.exit_price }},
-  };
-  // Build a small price line: entry, midpoint, exit.
-  const labels = [ex.entryDate, '...', ex.exitDate];
-  const data = [ex.entryPrice, (ex.entryPrice + ex.exitPrice) / 2, ex.exitPrice];
+  // Real daily closes pulled from yfinance — annotated with entry/exit days.
+  const T = {{ textbook_json | safe }};
+  const stratColor = "{{ strategy.color }}";
+  const exitColor = "#2e7d32";
 
-  const stopColor = "{{ strategy.color }}";
-  new Chart(document.getElementById('exampleChart'), {
+  const labels = T.bars.map(b => b.date);
+  const closes = T.bars.map(b => b.close);
+
+  // Build per-point styling: bigger dot at entry/exit, plain otherwise.
+  const radii = labels.map(d => (d === T.entry_date || d === T.exit_date) ? 7 : 0);
+  const colors = labels.map(d => {
+    if (d === T.entry_date) return stratColor;
+    if (d === T.exit_date) return exitColor;
+    return stratColor;
+  });
+
+  new Chart(document.getElementById('textbookChart'), {
     type: 'line',
     data: {
       labels,
       datasets: [{
-        label: ex.symbol + ' close',
-        data,
-        borderColor: stopColor,
-        backgroundColor: stopColor + '33',
+        label: T.symbol + ' daily close',
+        data: closes,
+        borderColor: stratColor,
+        backgroundColor: stratColor + '22',
         fill: true,
-        tension: 0.4,
-        pointRadius: [6, 0, 6],
-        pointBackgroundColor: [stopColor, stopColor, '#2e7d32'],
+        tension: 0.1,
+        pointRadius: radii,
+        pointBackgroundColor: colors,
         pointBorderColor: '#fff',
         pointBorderWidth: 2,
       }],
     },
     options: {
       plugins: {
-        legend: { display: true },
+        legend: { display: false },
         tooltip: { callbacks: {
           label: (ctx) => '$' + ctx.parsed.y.toFixed(2),
         }},
       },
-      scales: { y: { ticks: { callback: (v) => '$' + v }}},
+      scales: {
+        y: { ticks: { callback: (v) => '$' + v.toFixed(0) } },
+        x: { ticks: { maxRotation: 45, minRotation: 45 } },
+      },
     },
   });
 })();
