@@ -55,6 +55,10 @@ services:
     <<: *job
     command: ["report"]
 
+  warm-earnings:
+    <<: *job
+    command: ["warm-earnings"]
+
   shell:
     <<: *job
     entrypoint: ["/usr/bin/tini", "--", "/bin/bash"]

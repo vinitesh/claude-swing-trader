@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Strategies — swing_platform{% endblock %}
+{% block content %}
+<h2>Strategies</h2>
+<p>
+  Plain-English explanations of every strategy this platform knows about — entry rules,
+  why they work, when they fail, and the parameters currently in use.
+</p>
+
+<div class="strategy-cards">
+  {% for s in strategies %}
+  <article class="strategy-card" style="border-left: 4px solid {{ s.color }};">
+    <header>
+      <h3 style="margin:0 0 .25rem 0;">
+        <a href="/strategies/{{ s.name }}" style="text-decoration:none;">{{ s.title }}</a>
+      </h3>
+      <small>
+        {% if s.status == 'paper-ready' %}
+          <span class="badge ok">paper-ready</span>
+        {% else %}
+          <span class="badge muted">disabled</span>
+        {% endif %}
+        {% if s.test_sharpe is not none %}
+          &middot; test Sharpe <strong>{{ '%.2f'|format(s.test_sharpe) }}</strong>
+          {% if s.test_cagr is not none %}
+            &middot; CAGR {{ '%.1f'|format(s.test_cagr * 100) }}%
+          {% endif %}
+          {% if s.test_max_dd is not none %}
+            &middot; MDD {{ '%.1f'|format(s.test_max_dd * 100) }}%
+          {% endif %}
+        {% endif %}
+      </small>
+    </header>
+    <p>{{ s.tagline }}</p>
+    <p><a href="/strategies/{{ s.name }}" role="button" class="secondary">Read more &rarr;</a></p>
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}

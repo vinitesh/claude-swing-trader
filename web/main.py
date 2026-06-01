@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from core.config import init
 from persistence.db import session_scope
 from web.auth import require_auth
+from web import explainers as exp
 from web import queries as q
 
 log = logging.getLogger(__name__)
@@ -131,6 +132,28 @@ def _chart_payload(bundle) -> dict:
             {"day": d.isoformat(), "n": n} for (d, n) in bundle.signals_per_day
         ],
     }
+
+
+@app.get("/strategies", response_class=HTMLResponse)
+def strategies_index(request: Request, _user: str = Depends(require_auth)) -> HTMLResponse:
+    _ensure_enabled()
+    items = exp.list_explainers()
+    return templates.TemplateResponse(
+        request, "strategies_index.html",
+        {"strategies": items, "active_page": "strategies"},
+    )
+
+
+@app.get("/strategies/{name}", response_class=HTMLResponse)
+def strategy_detail(name: str, request: Request, _user: str = Depends(require_auth)) -> HTMLResponse:
+    _ensure_enabled()
+    item = exp.get_explainer(name)
+    if item is None:
+        raise HTTPException(404, f"Strategy {name!r} not found")
+    return templates.TemplateResponse(
+        request, "strategy_detail.html",
+        {"strategy": item, "active_page": "strategies"},
+    )
 
 
 @app.get("/runs", response_class=HTMLResponse)

@@ -16,7 +16,14 @@ and the data only changes when companies announce new earnings dates
 
 Cache strategy:
     data_cache/earnings/<symbol>.parquet  →  DataFrame of upcoming dates
-    Refreshed if older than EARNINGS_CACHE_TTL_HOURS (default 24h).
+    Refreshed if older than EARNINGS_CACHE_TTL_HOURS (default 7 days).
+
+Why 7 days? Companies announce their next earnings date 2-4 weeks in
+advance at minimum (often 6-8). Our entry filter window is 3 days. So a
+7-day TTL gives us ~2 weeks of safety margin before any reschedule could
+slip through, while cutting yfinance calls ~85% vs daily refresh. The
+nightly pre-warm cron job (`swingbot warm-earnings`) keeps the cache
+warm in practice so trading runs almost never trigger live fetches.
 
 Failure mode: if yfinance returns no data for a symbol, we treat it as
 "no known earnings" — signal proceeds. This is intentional: failing closed
@@ -36,7 +43,7 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data_cache" / "earnings"
-EARNINGS_CACHE_TTL_HOURS = 24
+EARNINGS_CACHE_TTL_HOURS = 24 * 7    # 7 days; see module docstring
 
 
 class EarningsCalendar:
@@ -88,6 +95,43 @@ class EarningsCalendar:
             return False
         ref = today or date.today()
         return 0 <= (next_e - ref).days <= days
+
+    def refresh(
+        self,
+        symbols: list[str],
+        force: bool = False,
+        sleep_secs: float = 0.5,
+    ) -> dict[str, str]:
+        """Refresh the cache for many symbols in one batch.
+
+        Used by the nightly pre-warm job. Walks symbols sequentially with a
+        small sleep between calls to stay polite with yfinance — total time
+        scales linearly with symbol count (~10 min for S&P 500).
+
+        Args:
+            symbols: ticker list to refresh.
+            force: if True, refetch even if cache is fresh; otherwise honor TTL.
+            sleep_secs: delay between calls to spread load.
+
+        Returns:
+            Dict of symbol → status: "fresh", "refreshed", or "failed".
+        """
+        import time
+        statuses: dict[str, str] = {}
+        for sym in symbols:
+            path = CACHE_DIR / f"{sym}.parquet"
+            if not force and path.exists():
+                age_hours = (datetime.now().timestamp() - path.stat().st_mtime) / 3600
+                if age_hours < self.ttl_hours:
+                    statuses[sym] = "fresh"
+                    continue
+            # invalidate in-memory cache so subsequent reads pick up the new data
+            self._memory.pop(sym, None)
+            df = self._fetch(sym, path)
+            statuses[sym] = "refreshed" if df is not None else "failed"
+            if sleep_secs > 0:
+                time.sleep(sleep_secs)
+        return statuses
 
     # ----------------- internal -----------------
     def _load_or_fetch(self, symbol: str) -> pd.DataFrame | None:

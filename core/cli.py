@@ -282,6 +282,61 @@ def report(strategy: str | None, as_json: bool) -> None:
     console.print(table)
 
 
+@cli.command("warm-earnings")
+@click.option("--force", is_flag=True, help="Refetch even if cache is fresh")
+@click.option(
+    "--sleep", "sleep_secs", default=0.5, type=float,
+    help="Seconds between yfinance calls (politeness)",
+)
+def warm_earnings(force: bool, sleep_secs: float) -> None:
+    """Pre-warm the earnings calendar cache for all enabled-strategy universes.
+
+    Designed for nightly cron at 2 AM ET. Walks the union of universes from
+    every strategy whose YAML opts into the earnings filter, refetches each
+    symbol's earnings dates, and sleeps briefly between calls to stay below
+    yfinance soft rate limits. Trading runs the next day will hit warm cache.
+    """
+    from data.earnings import EarningsCalendar
+
+    settings, global_cfg = init()
+    setup_logging(level=settings.log_level, log_dir=settings.log_dir)
+
+    # Union of universes across strategies that opt into the earnings filter.
+    # Strategies with avoid_earnings_within_days=0 are skipped — no point.
+    syms: set[str] = set()
+    default_universe = global_cfg.get("universe", {}).get("default", []) or []
+    for entry in global_cfg.get("strategies", []):
+        if not entry.get("enabled", True):
+            continue
+        cfg = (
+            load_strategy_config(entry["config_file"])
+            if entry.get("config_file")
+            else {}
+        )
+        if int(cfg.get("avoid_earnings_within_days", 0)) <= 0:
+            continue
+        universe = cfg.get("universe") or default_universe
+        syms.update(universe)
+
+    if not syms:
+        console.print("[yellow]No strategies opt into the earnings filter — nothing to warm.[/yellow]")
+        return
+
+    console.print(
+        f"[bold]Warming earnings cache[/bold] for {len(syms)} symbols "
+        f"(force={force}, sleep={sleep_secs}s)"
+    )
+    cal = EarningsCalendar()
+    statuses = cal.refresh(sorted(syms), force=force, sleep_secs=sleep_secs)
+
+    fresh = sum(1 for s in statuses.values() if s == "fresh")
+    refreshed = sum(1 for s in statuses.values() if s == "refreshed")
+    failed = sum(1 for s in statuses.values() if s == "failed")
+    console.print(
+        f"[green]Done.[/green] fresh={fresh} refreshed={refreshed} failed={failed}"
+    )
+
+
 @cli.command("serve")
 @click.option("--host", default=None, help="Override host (default: WEB_HOST or 0.0.0.0)")
 @click.option("--port", default=None, type=int, help="Override port (default: WEB_PORT or 8082)")

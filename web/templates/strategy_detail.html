@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ strategy.title }} — swing_platform{% endblock %}
+{% block content %}
+<p><a href="/strategies">&larr; All strategies</a></p>
+
+<header style="border-left: 6px solid {{ strategy.color }}; padding: 0.5rem 1rem; margin-bottom: 1.5rem;">
+  <h2 style="margin:0;">{{ strategy.title }}</h2>
+  <p style="margin:.5rem 0 0 0;">{{ strategy.tagline }}</p>
+  <small>
+    {% if strategy.status == 'paper-ready' %}
+      <span class="badge ok">paper-ready</span>
+    {% else %}
+      <span class="badge muted">disabled</span>
+    {% endif %}
+    {% if strategy.test_sharpe is not none %}
+      &middot; walk-forward test Sharpe <strong>{{ '%.2f'|format(strategy.test_sharpe) }}</strong>
+      {% if strategy.test_cagr is not none %}
+        &middot; CAGR {{ '%.1f'|format(strategy.test_cagr * 100) }}%
+      {% endif %}
+      {% if strategy.test_max_dd is not none %}
+        &middot; max drawdown {{ '%.1f'|format(strategy.test_max_dd * 100) }}%
+      {% endif %}
+    {% endif %}
+  </small>
+</header>
+
+<section>
+  <h3>What it does</h3>
+  <p>{{ strategy.what_it_does }}</p>
+</section>
+
+<section>
+  <h3>Why it works</h3>
+  <p>{{ strategy.why_it_works }}</p>
+</section>
+
+<section>
+  <h3>Entry decision flowchart</h3>
+  <p><small>
+    For every stock in the universe, every day after market close, the strategy walks down this
+    chart. If any check fails, no signal. If all checks pass, a bracket order is queued.
+  </small></p>
+  <pre class="mermaid" style="background:#f7f7f9;padding:1rem;border-radius:6px;">{{ strategy.entry_flowchart }}</pre>
+</section>
+
+{% if strategy.example %}
+<section>
+  <h3>Recent example trade</h3>
+  <p><small>
+    A real trade from the backtest CSV — picked deterministically (median winner) so this page is
+    stable. The annotated chart shows entry day, exit day, and the daily closing price between.
+  </small></p>
+
+  <article>
+    <table>
+      <tr><th>Symbol</th><td><strong>{{ strategy.example.symbol }}</strong></td></tr>
+      <tr><th>Entry</th><td>{{ strategy.example.entry_date }} &middot; ${{ '%.2f'|format(strategy.example.entry_price) }}</td></tr>
+      <tr><th>Exit</th><td>{{ strategy.example.exit_date }} &middot; ${{ '%.2f'|format(strategy.example.exit_price) }} &middot; <em>{{ strategy.example.exit_reason }}</em></td></tr>
+      <tr><th>Quantity</th><td>{{ strategy.example.qty }} shares</td></tr>
+      <tr><th>P&amp;L</th><td class="pos">${{ '%.2f'|format(strategy.example.pnl) }} ({{ '%.2f'|format(strategy.example.return_pct * 100) }}%)</td></tr>
+    </table>
+  </article>
+
+  <canvas id="exampleChart" height="100"></canvas>
+</section>
+{% endif %}
+
+<section>
+  <h3>When it works well</h3>
+  <ul>
+    {% for s in strategy.when_it_works %}<li>{{ s }}</li>{% endfor %}
+  </ul>
+  <h3>When it fails</h3>
+  <ul>
+    {% for s in strategy.when_it_fails %}<li>{{ s }}</li>{% endfor %}
+  </ul>
+</section>
+
+{% if strategy.params %}
+<section>
+  <h3>Currently configured parameters</h3>
+  <p><small>Read live from <code>config/strategies/{{ strategy.name }}.yaml</code> — edit the file and refresh to see new values.</small></p>
+  <figure>
+  <table role="grid">
+    <thead><tr><th>Parameter</th><th>Value</th><th>What it controls</th></tr></thead>
+    <tbody>
+    {% for p in strategy.params %}
+      <tr>
+        <td><strong>{{ p.label }}</strong></td>
+        <td><code>{{ p.value }}</code></td>
+        <td><small>{{ p.note }}</small></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </figure>
+</section>
+{% endif %}
+
+{% if strategy.glossary %}
+<section>
+  <h3>Glossary (terms used above)</h3>
+  <dl>
+    {% for term, defn in strategy.glossary %}
+      <dt><strong>{{ term }}</strong></dt>
+      <dd>{{ defn }}</dd>
+    {% endfor %}
+  </dl>
+</section>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+</script>
+{% if strategy.example %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+(function() {
+  // Simple chart: entry → exit prices linearly interpolated.
+  // We don't have intermediate daily closes loaded — that's intentional: this
+  // is a tutorial illustration, not the actual price path. Annotates entry/exit
+  // levels so the user sees stop and target context.
+  const ex = {
+    symbol: "{{ strategy.example.symbol }}",
+    entryDate: "{{ strategy.example.entry_date }}",
+    exitDate: "{{ strategy.example.exit_date }}",
+    entryPrice: {{ strategy.example.entry_price }},
+    exitPrice: {{ strategy.example.exit_price }},
+  };
+  // Build a small price line: entry, midpoint, exit.
+  const labels = [ex.entryDate, '...', ex.exitDate];
+  const data = [ex.entryPrice, (ex.entryPrice + ex.exitPrice) / 2, ex.exitPrice];
+
+  const stopColor = "{{ strategy.color }}";
+  new Chart(document.getElementById('exampleChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: ex.symbol + ' close',
+        data,
+        borderColor: stopColor,
+        backgroundColor: stopColor + '33',
+        fill: true,
+        tension: 0.4,
+        pointRadius: [6, 0, 6],
+        pointBackgroundColor: [stopColor, stopColor, '#2e7d32'],
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+      }],
+    },
+    options: {
+      plugins: {
+        legend: { display: true },
+        tooltip: { callbacks: {
+          label: (ctx) => '$' + ctx.parsed.y.toFixed(2),
+        }},
+      },
+      scales: { y: { ticks: { callback: (v) => '$' + v }}},
+    },
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}
