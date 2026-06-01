@@ -17,6 +17,8 @@
       <small>
         {% if s.status == 'paper-ready' %}
           <span class="badge ok">paper-ready</span>
+        {% elif s.status == 'paper-only' %}
+          <span class="badge warn">paper-only · failed walk-forward</span>
         {% else %}
           <span class="badge muted">disabled</span>
         {% endif %}

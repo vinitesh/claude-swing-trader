@@ -216,7 +216,7 @@ def _donchian() -> StrategyExplainer:
         name="donchian",
         title="Donchian-20 Breakout",
         tagline="Buy stocks breaking to a new 20-day high inside an uptrend; ride with a trailing stop.",
-        status="disabled",
+        status="paper-only",
         color="#888",
         test_sharpe=-0.21,
         test_cagr=-0.014,

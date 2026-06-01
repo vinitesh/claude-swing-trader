@@ -38,7 +38,10 @@ strategies:
     enabled: true
     config_file: rsi2.yaml
   - name: donchian
-    enabled: false                 # gated until walk-forward sweep passes
+    enabled: true                  # paper-trade only — failed walk-forward but
+                                   # we want real-world data on the disconfirmation;
+                                   # NEVER flip mode to live without re-validating
+                                   # on Russell 3000 or longer test window
     config_file: donchian.yaml
 
 notifications:
