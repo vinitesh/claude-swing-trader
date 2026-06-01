@@ -128,16 +128,59 @@ def test_report_strategy_rsi2(session):
     assert r.avg_hold_days == pytest.approx(2.5)          # (2+3)/2
 
 
-def test_report_all_strategies_returns_sorted_by_name(session):
+@pytest.fixture()
+def stub_global_config(monkeypatch):
+    """Replace load_global_config so tests don't read the real production YAML."""
+    from core import config as _cfg
+    monkeypatch.setattr(_cfg, "load_global_config", lambda: {"strategies": []})
+
+
+def test_report_all_strategies_returns_sorted_by_name(session, stub_global_config):
     _seed_two_strategies(session)
     reports = report_all_strategies(session)
     assert [r.strategy_name for r in reports] == ["pullback_ema", "rsi2"]
 
 
-def test_report_empty_db_returns_empty_list(session):
-    """A session with no signals should return [] without errors."""
+def test_report_empty_db_returns_empty_list(session, stub_global_config):
+    """No DB activity AND empty config → no reports."""
     reports = report_all_strategies(session)
     assert reports == []
+
+
+def test_report_includes_enabled_strategies_with_no_db_activity(session, monkeypatch):
+    """A strategy enabled in YAML but with zero signals/positions should still
+    appear in the report with all-zero numbers — so the dashboard surfaces
+    newly-enabled strategies before they trade.
+    """
+    from core import config as _cfg
+    monkeypatch.setattr(_cfg, "load_global_config", lambda: {
+        "strategies": [
+            {"name": "donchian", "enabled": True, "config_file": "donchian.yaml"},
+            {"name": "disabled_strat", "enabled": False, "config_file": "x.yaml"},
+        ],
+    })
+    reports = report_all_strategies(session)
+    names = [r.strategy_name for r in reports]
+    assert "donchian" in names
+    assert "disabled_strat" not in names    # disabled YAML entries are skipped
+    donchian = next(r for r in reports if r.strategy_name == "donchian")
+    assert donchian.signals_total == 0
+    assert donchian.orders_submitted == 0
+    assert donchian.positions_closed == 0
+
+
+def test_report_unions_db_and_yaml_sources(session, monkeypatch):
+    """When DB has rsi2 activity AND yaml lists donchian, both should appear."""
+    _seed_two_strategies(session)  # adds rsi2 + pullback_ema to DB
+    from core import config as _cfg
+    monkeypatch.setattr(_cfg, "load_global_config", lambda: {
+        "strategies": [
+            {"name": "donchian", "enabled": True, "config_file": "donchian.yaml"},
+            {"name": "pullback_ema", "enabled": True, "config_file": "pullback_ema.yaml"},
+        ],
+    })
+    names = [r.strategy_name for r in report_all_strategies(session)]
+    assert sorted(names) == ["donchian", "pullback_ema", "rsi2"]
 
 
 def test_report_strategy_zero_closed_positions(session):

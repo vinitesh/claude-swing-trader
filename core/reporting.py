@@ -134,19 +134,32 @@ def report_strategy(session: Session, strategy_name: str) -> StrategyReport:
 
 
 def report_all_strategies(session: Session) -> list[StrategyReport]:
-    """One report per strategy that has touched the DB."""
-    names = [
-        n for (n,) in session.execute(
-            select(Signal.strategy_name).distinct()
-        ).all()
-    ] or []
-    # Also include strategies with positions but no signals yet (edge case)
-    pos_names = [
-        n for (n,) in session.execute(
-            select(Position.strategy_name).distinct()
-        ).all()
-    ]
-    for n in pos_names:
+    """Return one report per strategy that is either enabled in YAML config OR
+    has touched the DB. New strategies show as zero rows so the bake-off table
+    surfaces them immediately, before they've traded.
+    """
+    names: list[str] = []
+
+    # Strategies with DB activity (signals or positions)
+    for (n,) in session.execute(select(Signal.strategy_name).distinct()).all():
         if n not in names:
             names.append(n)
+    for (n,) in session.execute(select(Position.strategy_name).distinct()).all():
+        if n not in names:
+            names.append(n)
+
+    # Strategies enabled in YAML — surface even before first signal
+    try:
+        from core.config import load_global_config
+        cfg = load_global_config()
+        for entry in (cfg.get("strategies") or []):
+            if not entry.get("enabled", True):
+                continue
+            n = entry.get("name")
+            if n and n not in names:
+                names.append(n)
+    except Exception:
+        # Config loading shouldn't break the report; fall through with DB names.
+        pass
+
     return [report_strategy(session, n) for n in sorted(names)]
