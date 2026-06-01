@@ -1,9 +1,19 @@
 # =====================================================================
 # Donchian-N breakout — pure trend-following
 #
+# DISABLED in config.yaml — failed walk-forward validation:
+#   median test Sharpe -0.21, 0/15 top-train clear gate, train→test drop -0.97.
+#   Source: backtest_results/donchian/walk_forward_sweep.csv
+#
+# Why it failed: 2022-2023 test window was a structurally bad period for
+# trend-followers (bear + choppy recovery). Strategy may work on:
+#   - Wider universe (Russell 3000 instead of S&P 500)
+#   - Longer test window (7+ years to dilute bad regimes)
+#   - Multi-timeframe (55-day in addition to 20-day)
+# Code kept for future reference; do not enable without re-validating.
+#
 # Buy when close > prior N-day max-of-closes AND close > 200-SMA.
 # Exit via ATR-trailing stop (ratchets up). Hard stop as catastrophe floor.
-# Time stop is loose because trend-followers ride extended moves.
 # =====================================================================
 
 allocation_pct: 0.20            # 20% of strategy cap per position (max ~5 positions)
