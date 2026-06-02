@@ -126,9 +126,23 @@ class LiveRunner:
                 continue
             name = entry["name"]
             if name not in registry:
-                raise KeyError(
-                    f"Strategy {name!r} not in registry. Available: {list(registry)}"
+                # Fail-soft: log + alert instead of crashing the entire run.
+                # Common cause: YAML enables a strategy whose Python module
+                # hasn't been deployed (image build skew). Other strategies
+                # should still get to trade.
+                msg = (
+                    f"Strategy {name!r} enabled in YAML but not found in registry "
+                    f"(available: {list(registry)}). Skipping it; deploy the module "
+                    f"and rebuild the image to enable."
                 )
+                log.error(msg)
+                # Best-effort alert — don't let a notifier failure also crash us.
+                try:
+                    from notifications.telegram_notifier import fmt_error
+                    self.notifier.send(fmt_error("strategy-load", RuntimeError(msg)))
+                except Exception:
+                    pass
+                continue
             cfg = (
                 load_strategy_config(entry["config_file"])
                 if entry.get("config_file")

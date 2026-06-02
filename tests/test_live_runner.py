@@ -195,3 +195,40 @@ def test_no_signal_means_no_orders(runner_factory):
     assert outcome.signals_found == 0
     assert outcome.orders_submitted == 0
     assert len(runner.broker.submitted) == 0
+
+
+def test_unknown_strategy_in_yaml_skipped_not_crashed(isolated_db, tmp_path):
+    """Regression for Jun 1, 2026 outage: when YAML enables a strategy whose
+    Python module isn't deployed (image build skew), runner used to raise
+    KeyError and abort the entire run, taking the other working strategies
+    with it. Now it should log+alert, skip the missing strategy, and let
+    valid ones still run.
+    """
+    from core.live_runner import LiveRunner
+    from notifications.notifier_base import NullNotifier
+    class S:
+        log_level = "WARNING"
+        log_dir = str(tmp_path / "logs")
+        trading_mode = "paper"
+        alpaca_api_key = "x"; alpaca_secret_key = "x"; alpaca_data_feed = "iex"
+        telegram_bot_token = ""; telegram_chat_id = ""
+        database_url = f"sqlite:///{isolated_db}"
+    cfg = {
+        "broker": {"type": "alpaca"},
+        "data": {"primary": "yfinance", "cache_dir": str(CACHE_DIR)},
+        "risk": {"max_open_positions": 8, "max_per_strategy": 5,
+                 "daily_loss_limit_pct": 0.03, "min_position_size_usd": 100},
+        "universe": {"default": ["AAPL"]},
+        "strategies": [
+            {"name": "pullback_ema", "enabled": True, "config_file": "pullback_ema.yaml"},
+            {"name": "fictional_strategy", "enabled": True, "config_file": "fake.yaml"},
+        ],
+        "notifications": {"telegram": {"enabled": False}},
+    }
+    runner = LiveRunner(
+        settings=S(), config=cfg,
+        broker=FakeBroker(), data_provider=CachedProvider(),
+        notifier=NullNotifier(), dry_run=True,
+    )
+    # The unknown strategy should be skipped, not crash construction.
+    assert {s.name for s in runner.strategies} == {"pullback_ema"}
