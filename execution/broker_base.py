@@ -32,6 +32,10 @@ class Broker(ABC):
     @abstractmethod
     def close_position(self, symbol: str) -> None: ...
 
+    def cancel_all_orders(self) -> int:
+        """Cancel all open orders. Default: no-op (override for real brokers)."""
+        return 0
+
     def is_market_open(self) -> bool:
         """Default: always open (override for real brokers)."""
         return True

@@ -205,6 +205,111 @@ def sync() -> None:
     console.print("[dim]Note: v1 sync uses entry_price as exit; for true P&L pull Alpaca order history.[/dim]")
 
 
+@cli.command("close-all")
+@click.option("--yes", is_flag=True, help="Required confirmation flag — without it, dry-run only.")
+def close_all(yes: bool) -> None:
+    """Flatten ALL open broker positions, then mark them closed in the DB.
+
+    Liquidates every open position at the broker (paper or live, per .env),
+    then reconciles SQLite so the DB matches the now-empty broker. Without
+    --yes this only lists what WOULD be closed (dry-run), placing no orders.
+    """
+    from core.live_runner import LiveRunner
+    from datetime import datetime as _dt
+
+    settings, global_cfg = init()
+    setup_logging(level=settings.log_level, log_dir=settings.log_dir)
+
+    # Hard guard: this command is destructive. Refuse to run against a real-money
+    # account unless explicitly forced — the platform is meant to be paper-only.
+    if (settings.trading_mode or "").lower() == "live":
+        console.print(
+            "[red]Refusing to run close-all against a LIVE account "
+            "(TRADING_MODE=live). This command is paper-only by design.[/red]"
+        )
+        sys.exit(2)
+
+    runner = LiveRunner(settings=settings, config=global_cfg, dry_run=False)
+    broker = runner.broker
+
+    from persistence import repository as repo
+    from persistence.db import session_scope
+
+    try:
+        positions = broker.get_positions()
+    except Exception as e:
+        console.print(f"[red]broker.get_positions failed: {e}[/red]")
+        sys.exit(2)
+
+    symbols = sorted({p.symbol for p in positions})
+    console.print(f"[bold]Broker open positions:[/bold] {len(symbols)} — {symbols}")
+
+    if not symbols:
+        console.print("[green]Nothing to close — broker is already flat.[/green]")
+        return
+
+    if not yes:
+        console.print(
+            "[yellow]Dry-run: pass --yes to actually liquidate these positions.[/yellow]"
+        )
+        return
+
+    # 1) Cancel ALL open orders first — including resting bracket stop-loss /
+    # take-profit legs. If we skipped this, a child order could fill after the
+    # liquidation below and silently re-open a position.
+    try:
+        n_cancelled = broker.cancel_all_orders()
+        console.print(f"[dim]Cancelled {n_cancelled} open order(s) (incl. bracket legs).[/dim]")
+    except Exception as e:
+        console.print(f"[red]cancel_all_orders failed: {e} — aborting before liquidation.[/red]")
+        sys.exit(2)
+
+    # 2) Liquidate each position. Track which symbols were SUCCESSFULLY closed
+    # so we only reconcile those in the DB.
+    closed_ok: set[str] = set()
+    failed: list[str] = []
+    for sym in symbols:
+        try:
+            broker.close_position(sym)
+            closed_ok.add(sym)
+            console.print(f"  submitted liquidation: {sym}")
+        except Exception as e:
+            failed.append(sym)
+            console.print(f"  [red]FAILED to close {sym}: {e}[/red]")
+
+    # 3) Reconcile DB. Only mark a DB position closed if its broker liquidation
+    # succeeded (or the broker no longer reports it). A symbol that FAILED to
+    # close stays open in the DB so it remains visible / managed — never make a
+    # still-held position invisible. Exit price unknown (async market exit) — use
+    # entry_price placeholder, same convention as `sync`; a later sync corrects P&L.
+    closed_db = 0
+    skipped_db: list[str] = []
+    with session_scope() as s:
+        for p in repo.get_open_positions(s):
+            if p.symbol in failed:
+                skipped_db.append(p.symbol)
+                continue
+            repo.close_position(
+                s, symbol=p.symbol, exit_price=p.avg_entry_price,
+                exit_reason="close_all", closed_at=_dt.utcnow(),
+            )
+            closed_db += 1
+
+    console.print(
+        f"\n[bold]Done.[/bold] Submitted liquidation for {len(closed_ok)}/{len(symbols)} "
+        f"at broker, reconciled {closed_db} DB position(s)."
+    )
+    console.print(
+        "[dim]Note: liquidations are async market orders — 'submitted' ≠ filled. "
+        "Re-run `swingbot sync` or `report` shortly to confirm the broker is flat.[/dim]"
+    )
+    if skipped_db:
+        console.print(f"[yellow]Left open in DB (broker close failed): {skipped_db}[/yellow]")
+    if failed:
+        console.print(f"[red]Failed at broker: {failed} — re-run close-all or check manually.[/red]")
+        sys.exit(2)
+
+
 @cli.command("report")
 @click.option("--strategy", default=None, help="Limit to one strategy (default: all)")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of pretty table")

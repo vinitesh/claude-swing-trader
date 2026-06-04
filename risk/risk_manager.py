@@ -71,16 +71,21 @@ class RiskManager:
                 f"{self.limits.min_reward_to_risk:.2f}"
             )
 
-        # Open-position counts
-        if len(open_positions) >= self.limits.max_open_positions:
-            return False, f"max open positions ({self.limits.max_open_positions}) reached"
+        # Open-position counts. A cap of <= 0 disables that count gate entirely
+        # — the per-strategy USD capital cap (capital_allocation_usd, enforced
+        # via strategy_remaining_capital above) is then the sole position
+        # control. This is the configured default: see config/config.yaml.
+        if self.limits.max_open_positions > 0:
+            if len(open_positions) >= self.limits.max_open_positions:
+                return False, f"max open positions ({self.limits.max_open_positions}) reached"
 
-        per_strat = sum(1 for p in open_positions if p.strategy_name == signal.strategy_name)
-        if per_strat >= self.limits.max_per_strategy:
-            return False, (
-                f"max per-strategy positions for {signal.strategy_name} "
-                f"({self.limits.max_per_strategy}) reached"
-            )
+        if self.limits.max_per_strategy > 0:
+            per_strat = sum(1 for p in open_positions if p.strategy_name == signal.strategy_name)
+            if per_strat >= self.limits.max_per_strategy:
+                return False, (
+                    f"max per-strategy positions for {signal.strategy_name} "
+                    f"({self.limits.max_per_strategy}) reached"
+                )
 
         # Already in this symbol?
         if any(p.symbol == signal.symbol for p in open_positions):

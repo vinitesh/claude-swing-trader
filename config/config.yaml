@@ -15,8 +15,14 @@ data:
 
 risk:
   default_risk_pct: 0.01          # Risk 1% of account per trade
-  max_open_positions: 8
-  max_per_strategy: 5
+  # Position control is the per-strategy USD capital cap (capital_allocation_usd
+  # = $25k each, in config/strategies/*.yaml). That naturally bounds both the
+  # number of positions and concentration, and self-decrements as orders are
+  # submitted within a single run. The raw count caps below are DISABLED (0):
+  # they were arbitrary, double-counted against the capital cap, and their
+  # enforcement read stale broker fills. 0 = no count gate; set >0 to re-enable.
+  max_open_positions: 0           # disabled — capital cap governs
+  max_per_strategy: 0             # disabled — capital cap governs
   daily_loss_limit_pct: 0.03      # Halt trading if -3% in a day
   min_position_size_usd: 100      # Skip signals where position would be tiny
 

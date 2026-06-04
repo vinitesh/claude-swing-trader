@@ -69,6 +69,19 @@ class AlpacaBroker(Broker):
     def close_position(self, symbol: str) -> None:
         self.client.close_position(symbol)
 
+    def cancel_all_orders(self) -> int:
+        """Cancel every open order (incl. resting bracket stop/take-profit legs).
+
+        Returns the number of cancel requests acknowledged. Must run BEFORE
+        liquidating positions, otherwise a resting SL/TP child order can fill
+        after the flatten and re-open a position.
+        """
+        resp = self.client.cancel_orders()
+        try:
+            return len(resp)
+        except TypeError:
+            return 0
+
     def is_market_open(self) -> bool:
         clock = self.client.get_clock()
         return bool(clock.is_open)
