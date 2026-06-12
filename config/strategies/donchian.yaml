@@ -18,7 +18,7 @@
 
 allocation_pct: 0.20            # 20% of strategy cap per position (max ~5 positions)
 risk_pct: 0.01                  # 1% account risk per trade (used for sizing only)
-capital_allocation_usd: 25000   # Match the others; will be revisited if 4 strategies → $20k each
+capital_allocation_usd: 33000   # Match the others; 3 strategies x $33k = $99k of ~$101.5k equity (~2.5% cash buffer)
 
 # Indicator periods
 donchian_period: 20             # rolling N-day high (20 = Turtles classic)
