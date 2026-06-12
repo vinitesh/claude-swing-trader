@@ -238,6 +238,38 @@ def get_strategy_for_symbol(session: Session, symbol: str) -> str | None:
     return p.strategy_name if p else None
 
 
+def classify_for_sync(
+    db_open_symbols: list[str],
+    held_symbols: set[str],
+    pending_symbols: set[str],
+) -> dict[str, list[str]]:
+    """Pure reconciliation decision for `sync` — no DB access, fully testable.
+
+    Given the symbols currently open in our DB and what the broker reports
+    (positions it HOLDS, and symbols with a WORKING order), bucket each DB
+    symbol into exactly one action:
+
+      - 'keep_held'      : broker still holds it          → leave open
+      - 'keep_pending'   : not held, but an order is working (entry queued or
+                            resting bracket leg) → leave open, do NOT close
+      - 'close'          : broker neither holds it nor has a working order
+                            → genuinely gone, safe to close
+
+    The 'keep_pending' bucket is the fix for the desync bug: an after-close
+    run-live queues orders that fill next open; closing them at the 19:00 sync
+    (before they fill) wrongly wrote them off and blinded the capital cap.
+    """
+    buckets: dict[str, list[str]] = {"keep_held": [], "keep_pending": [], "close": []}
+    for sym in db_open_symbols:
+        if sym in held_symbols:
+            buckets["keep_held"].append(sym)
+        elif sym in pending_symbols:
+            buckets["keep_pending"].append(sym)
+        else:
+            buckets["close"].append(sym)
+    return buckets
+
+
 # ---------------- Alerts ----------------
 def record_alert(
     session: Session,

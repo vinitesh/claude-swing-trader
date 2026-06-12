@@ -183,26 +183,66 @@ def sync() -> None:
         console.print(f"[red]broker.get_positions failed: {e}[/red]")
         sys.exit(2)
 
-    open_symbols = {p.symbol for p in positions}
-    console.print(f"[bold]Broker open positions:[/bold] {len(open_symbols)} — {sorted(open_symbols)}")
+    # A DB position is only "gone" if the broker neither HOLDS it nor has a
+    # WORKING order for it. Without the working-order check, an after-close
+    # run-live (orders queued, not yet filled) would be falsely closed here —
+    # the bug that desynced the DB and over-deployed capital. See get_open_order_symbols.
+    try:
+        pending_symbols = broker.get_open_order_symbols()
+    except Exception as e:
+        # Fail SAFE: if we can't confirm pending orders, do NOT close anything,
+        # rather than risk falsely closing positions whose entry is still queued.
+        console.print(f"[red]broker.get_open_order_symbols failed: {e} — aborting sync to avoid false closes.[/red]")
+        sys.exit(2)
+
+    held_symbols = {p.symbol for p in positions}
+    alive_symbols = held_symbols | pending_symbols
+    console.print(
+        f"[bold]Broker:[/bold] {len(held_symbols)} held, "
+        f"{len(pending_symbols)} with working orders "
+        f"({len(alive_symbols)} alive total)"
+    )
 
     closed = 0
     with session_scope() as s:
-        # Any position open in DB but not at broker → mark closed.
-        # We don't have exit price here; use last entry_price as a placeholder
-        # (a proper sync would query Alpaca order history; this is the v1).
         db_positions = repo.get_open_positions(s)
+        buckets = repo.classify_for_sync(
+            [p.symbol for p in db_positions], held_symbols, pending_symbols
+        )
+        to_close = set(buckets["close"])
         for p in db_positions:
-            if p.symbol not in open_symbols:
-                repo.close_position(
-                    s, symbol=p.symbol, exit_price=p.avg_entry_price,
-                    exit_reason="closed_at_broker", closed_at=_dt.utcnow(),
-                )
-                closed += 1
-                console.print(f"  closed: {p.symbol} (broker no longer holds)")
+            if p.symbol not in to_close:
+                continue
+            # Genuinely gone from the broker → close, using the REAL exit fill
+            # price when we can find one for THIS position (true P&L). If there's
+            # no matching filled sell, the symbol left the broker without a real
+            # exit — most likely an entry order that was canceled/expired and
+            # never actually opened — so we record a 0-P&L placeholder under a
+            # distinct reason rather than fabricating a round-trip.
+            try:
+                fill = broker.get_last_exit_fill(p.symbol, opened_after=p.opened_at)
+            except Exception:
+                fill = None
+            if fill is not None:
+                exit_price, _ = fill
+                exit_reason = "exit_filled"
+                tag = f"real fill @ {exit_price:.2f}"
+            else:
+                exit_price = p.avg_entry_price
+                exit_reason = "no_exit_fill"
+                tag = f"no matching exit fill — placeholder @ {exit_price:.2f}"
+            repo.close_position(
+                s, symbol=p.symbol, exit_price=exit_price,
+                exit_reason=exit_reason, closed_at=_dt.utcnow(),
+            )
+            closed += 1
+            console.print(f"  closed: {p.symbol} ({tag})")
 
-    console.print(f"\n[dim]Closed {closed} position(s) in DB to match broker.[/dim]")
-    console.print("[dim]Note: v1 sync uses entry_price as exit; for true P&L pull Alpaca order history.[/dim]")
+    console.print(
+        f"\n[dim]Closed {closed} position(s); left "
+        f"{len(buckets['keep_held'])} held + {len(buckets['keep_pending'])} "
+        f"with pending orders untouched.[/dim]"
+    )
 
 
 @cli.command("close-all")

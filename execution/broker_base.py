@@ -36,6 +36,16 @@ class Broker(ABC):
         """Cancel all open orders. Default: no-op (override for real brokers)."""
         return 0
 
+    def get_open_order_symbols(self) -> set[str]:
+        """Symbols with a working (non-terminal) order. Default: none."""
+        return set()
+
+    def get_last_exit_fill(
+        self, symbol: str, opened_after: datetime | None = None
+    ) -> tuple[float, datetime] | None:
+        """(fill_price, filled_at) of the position's exit sell. Default: unknown."""
+        return None
+
     def is_market_open(self) -> bool:
         """Default: always open (override for real brokers)."""
         return True
