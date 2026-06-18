@@ -56,6 +56,17 @@ class RunOutcome:
     error: str | None = None
 
 
+@dataclass
+class ExitOutcome:
+    mode: str
+    positions_checked: int = 0
+    stops_raised: int = 0
+    signal_exits: int = 0
+    time_stops: int = 0
+    errors: int = 0
+    error: str | None = None
+
+
 class LiveRunner:
     """Wires strategies → broker → DB → notifier for one daily run."""
 
@@ -231,6 +242,143 @@ class LiveRunner:
             )
         )
         return outcome
+
+    # --------------- Exit management ---------------
+    def manage_exits(self) -> ExitOutcome:
+        """Apply indicator/time-driven exits to currently-open positions.
+
+        Mirrors the backtester's per-bar exit pass (core.exits), so live exits
+        the same way the strategy was validated:
+          1. Trailing-stop ratchet → raise the resting Alpaca stop leg.
+          2. Signal exit (e.g. RSI(2) > 70) → market close at today's price.
+          3. Time stop (held >= time_stop_days) → market close.
+        Fixed SL/TP are left to the Alpaca bracket legs (filled broker-side).
+
+        Idempotent and safe to re-run: it only acts on positions still open in
+        the DB, and closing one removes it from the next pass.
+        """
+        from core.exits import compute_trailing_stop, indicator_exit_reason
+
+        outcome = ExitOutcome(mode=self.mode)
+        ok, reason = self._preflight()
+        if not ok:
+            outcome.error = f"preflight: {reason}"
+            log.warning("manage_exits preflight failed: %s", reason)
+            return outcome
+
+        today = date.today()
+        end = today
+        start = end - timedelta(days=400)
+        strat_by_name = {s.name: s for s in self.strategies}
+
+        # Snapshot what the broker actually holds, so we only manage live
+        # positions (skip ones whose exit already filled — sync closes those).
+        try:
+            held_symbols = {p.symbol for p in self.broker.get_positions()}
+        except Exception as e:
+            outcome.error = f"get_positions failed: {e}"
+            log.warning("manage_exits aborting: %s", e)
+            return outcome
+
+        with session_scope() as s:
+            open_rows = repo.get_open_positions(s)
+            for row in open_rows:
+                strat = strat_by_name.get(row.strategy_name)
+                if strat is None:
+                    # Strategy disabled/removed — leave its positions alone.
+                    continue
+                outcome.positions_checked += 1
+                try:
+                    self._manage_one_exit(
+                        s, row, strat, today, start, end, outcome, held_symbols,
+                        compute_trailing_stop, indicator_exit_reason,
+                    )
+                except Exception as e:
+                    outcome.errors += 1
+                    log.exception("manage_exits failed for %s/%s", row.strategy_name, row.symbol)
+
+        self.notifier.send(
+            fmt_summary(
+                mode=f"exits:{self.mode}",
+                n_signals=outcome.positions_checked,
+                n_submitted=outcome.signal_exits + outcome.time_stops,
+                n_skipped=outcome.stops_raised,
+                n_rejected=outcome.errors,
+                realized_pnl=0.0,
+            )
+        )
+        return outcome
+
+    def _manage_one_exit(
+        self, session, row, strat, today, start, end, outcome, held_symbols,
+        compute_trailing_stop, indicator_exit_reason,
+    ) -> None:
+        # Only act on positions the broker ACTUALLY still holds. If a prior
+        # exit already filled (broker flat) we skip — sync closes the DB row.
+        # This prevents re-submitting a market close on an already-exited symbol.
+        if row.symbol not in held_symbols:
+            return
+
+        # Build the indicator window for this symbol (same shape as scan).
+        df = self.data.get_bars(row.symbol, start=start, end=end)
+        df = strat.indicators(df)
+        df.attrs["symbol"] = row.symbol
+
+        # Domain Position from the DB row (carries opened_at + current stop).
+        from core.signal import Position as DomainPosition
+        pos = DomainPosition(
+            symbol=row.symbol, qty=row.qty, avg_entry_price=row.avg_entry_price,
+            side=row.side, strategy_name=row.strategy_name, opened_at=row.opened_at,
+            stop_loss=row.stop_loss, take_profit=row.take_profit,
+        )
+
+        # 1. Trailing-stop ratchet: raise the resting broker stop leg. Broker is
+        # the source of truth for the stop; mirror into the DB row only on success.
+        new_stop = compute_trailing_stop(strat, pos, df)
+        if new_stop is not None:
+            try:
+                if self.broker.update_stop_price(row.symbol, new_stop):
+                    row.stop_loss = float(new_stop)
+                    outcome.stops_raised += 1
+                    log.info("trailing stop raised %s -> %.2f", row.symbol, new_stop)
+            except Exception as e:
+                outcome.errors += 1
+                log.warning("update_stop_price failed for %s: %s", row.symbol, e)
+
+        # 2 & 3. Signal exit / time stop. We do NOT close the DB row here — sync
+        # is the single close-path authority and records the REAL fill price
+        # (once the market order settles; if that's after-hours it reconciles on
+        # the next sync, not necessarily the same day). Here we only: cancel the
+        # resting bracket legs (so a stop/TP can't fill after our market sell and
+        # flip us short), then submit the market close. dry_run places no orders.
+        reason = indicator_exit_reason(strat, pos, df, today)
+        if reason is None:
+            return
+
+        if self.dry_run:
+            log.info("[dry-run] would %s exit %s", reason, row.symbol)
+        else:
+            try:
+                # Abort the close unless EVERY bracket leg was canceled — a
+                # surviving leg could fill after our sell and flip us short.
+                if not self.broker.cancel_orders_for_symbol(row.symbol):
+                    outcome.errors += 1
+                    log.warning(
+                        "skipping %s exit for %s: not all bracket legs canceled",
+                        reason, row.symbol,
+                    )
+                    return
+                self.broker.close_position(row.symbol)
+            except Exception as e:
+                outcome.errors += 1
+                log.warning("exit close failed for %s: %s", row.symbol, e)
+                return
+
+        if reason == "signal_exit":
+            outcome.signal_exits += 1
+        else:
+            outcome.time_stops += 1
+        log.info("%s exit submitted for %s (DB close deferred to sync)", reason, row.symbol)
 
     # --------------- Capital accounting ---------------
     def _strategy_remaining_capital(self, strategy_name: str, session) -> float | None:

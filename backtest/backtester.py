@@ -21,6 +21,7 @@ from typing import Iterable
 import pandas as pd
 
 from backtest.performance import PerformanceReport, Trade, compute_performance
+from core.exits import compute_trailing_stop, indicator_exit_reason
 from core.regime import RegimeFilter
 from core.signal import Action, Position, Signal
 from core.strategy_base import Strategy
@@ -112,40 +113,32 @@ class Backtester:
                     continue
                 bar = df.loc[today_ts]
 
-                # Trailing-stop: ratchet stop up but never down. Strategy returns
-                # the new candidate; backtester only adopts if strictly higher
-                # than current stop (long positions only — short logic would mirror).
+                # Trailing-stop: ratchet stop up but never down. Shared with the
+                # live runner via core.exits so both paths decide identically.
                 window = df.loc[:today_ts]
-                new_stop = self.strategy.update_trailing_stop(pos, window)
-                if (
-                    new_stop is not None
-                    and pos.side == "long"
-                    and pos.stop_loss is not None
-                    and new_stop > pos.stop_loss
-                ):
+                new_stop = compute_trailing_stop(self.strategy, pos, window)
+                if new_stop is not None:
                     pos.stop_loss = float(new_stop)
 
-                # Signal-based exit (e.g. RSI(2) > 70). Checked before bracket
-                # to give strategies a chance to take profit/loss on indicators
-                # rather than only on price-trigger levels.
+                # Signal exit (e.g. RSI(2) > 70) is checked before the price-
+                # trigger bracket so indicator exits take precedence. Bracket
+                # SL/TP (a price-range cross) is simulated here from the daily
+                # bar — live, those are the Alpaca bracket legs.
+                bracket = self._check_bracket_exit(pos, bar)
                 if self.strategy.should_exit_signal(pos, window):
                     exit_price = float(bar["close"])
                     broker.close_position(sym, exit_price=exit_price)
                     trades.append(_make_trade(pos, today_ts, exit_price, "signal_exit"))
                     continue
 
-                exit_info = self._check_bracket_exit(pos, bar)
-                if exit_info is None:
-                    # Time stop?
-                    opened_date = pos.opened_at.date() if isinstance(pos.opened_at, datetime) else pos.opened_at
-                    today_date = today_ts.date()
-                    held = (today_date - opened_date).days
-                    if held >= time_stop_days:
+                if bracket is None:
+                    # Time stop (shared decision via core.exits).
+                    if indicator_exit_reason(self.strategy, pos, window, today_ts) == "time_stop":
                         exit_price = float(bar["close"])
                         broker.close_position(sym, exit_price=exit_price)
                         trades.append(_make_trade(pos, today_ts, exit_price, "time_stop"))
                 else:
-                    exit_price, reason = exit_info
+                    exit_price, reason = bracket
                     broker.close_position(sym, exit_price=exit_price)
                     trades.append(_make_trade(pos, today_ts, exit_price, reason))
 

@@ -36,6 +36,10 @@ class FakeBroker(Broker):
         self.submitted: list[tuple[DomainSignal, int]] = []
         self.fail_submit = fail_submit
         self._next_id = 0
+        self.canceled_legs: list = []
+        self.stop_raises: list = []
+        self.closed: list = []
+        self.cancel_succeeds: bool = True
 
     def get_account(self) -> Account:
         return Account(cash=self.cash, equity=self.equity, buying_power=self.cash)
@@ -61,9 +65,19 @@ class FakeBroker(Broker):
         return oid
 
     def close_position(self, symbol: str) -> None:
+        self.closed.append(symbol)
         self.positions = [p for p in self.positions if p.symbol != symbol]
 
     def is_market_open(self) -> bool:
+        return True
+
+    # Exit-management hooks (recorded for assertions)
+    def cancel_orders_for_symbol(self, symbol: str) -> bool:
+        self.canceled_legs.append(symbol)
+        return self.cancel_succeeds
+
+    def update_stop_price(self, symbol: str, new_stop: float) -> bool:
+        self.stop_raises.append((symbol, round(float(new_stop), 2)))
         return True
 
 

@@ -245,6 +245,35 @@ def sync() -> None:
     )
 
 
+@cli.command("manage-exits")
+@click.option("--dry-run", is_flag=True, help="Evaluate exits but place no broker orders.")
+def manage_exits(dry_run: bool) -> None:
+    """Apply indicator/time exits (trailing stop, RSI/signal exit, time stop).
+
+    Run shortly AFTER run-live so exits evaluate on the same final daily close
+    the backtest uses. Fixed stop-loss/take-profit are handled by the Alpaca
+    bracket legs; this covers the indicator-driven exits the broker can't know.
+    """
+    from core.live_runner import LiveRunner
+
+    settings, global_cfg = init()
+    setup_logging(level=settings.log_level, log_dir=settings.log_dir)
+    runner = LiveRunner(settings=settings, config=global_cfg, dry_run=dry_run)
+    outcome = runner.manage_exits()
+
+    console.print()
+    style = "green" if not outcome.error else "red"
+    console.print(f"[bold {style}]Exit pass complete — mode={outcome.mode}[/bold {style}]")
+    console.print(f"  Positions checked: {outcome.positions_checked}")
+    console.print(f"  Stops raised:      {outcome.stops_raised}")
+    console.print(f"  Signal exits:      {outcome.signal_exits}")
+    console.print(f"  Time stops:        {outcome.time_stops}")
+    console.print(f"  Errors:            {outcome.errors}")
+    if outcome.error:
+        console.print(f"[red]  Error: {outcome.error}[/red]")
+        sys.exit(2)
+
+
 @cli.command("close-all")
 @click.option("--yes", is_flag=True, help="Required confirmation flag — without it, dry-run only.")
 def close_all(yes: bool) -> None:

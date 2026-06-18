@@ -51,6 +51,10 @@ services:
     <<: *job
     command: ["sync"]
 
+  manage-exits:
+    <<: *job
+    command: ["manage-exits"]
+
   report:
     <<: *job
     command: ["report"]

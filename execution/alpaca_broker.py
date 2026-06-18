@@ -10,6 +10,7 @@ from alpaca.trading.requests import (
     GetOrdersRequest,
     LimitOrderRequest,
     MarketOrderRequest,
+    ReplaceOrderRequest,
     StopLossRequest,
     TakeProfitRequest,
 )
@@ -144,6 +145,76 @@ class AlpacaBroker(Broker):
                 continue
             return float(filled_px), (filled_at or datetime.utcnow())
         return None
+
+    def cancel_orders_for_symbol(self, symbol: str) -> bool:
+        """Cancel ALL open orders for ``symbol`` (its resting bracket SL/TP legs).
+
+        Must be called BEFORE a manual market close, otherwise a still-resting
+        stop or take-profit leg can fill after the close and re-open / flip the
+        position (a double-sell → short).
+
+        Returns True only if EVERY matching open order was canceled. If any
+        single cancel fails, returns False so the caller can ABORT the close —
+        a partial cancel would leave a resting leg that could still flip us
+        short. Returns True when there were no orders to cancel.
+        """
+        req = GetOrdersRequest(
+            status=QueryOrderStatus.OPEN, symbols=[symbol],
+            limit=500, direction="desc", nested=True,
+        )
+        orders = self.client.get_orders(filter=req)
+        ids: set = set()
+        for o in orders:
+            if str(getattr(o, "symbol", "")) == symbol:
+                ids.add(o.id)
+            for leg in (getattr(o, "legs", None) or []):
+                if str(getattr(leg, "symbol", "")) == symbol:
+                    ids.add(leg.id)
+        all_ok = True
+        for oid in ids:
+            try:
+                self.client.cancel_order_by_id(oid)
+            except Exception as e:
+                all_ok = False  # do NOT swallow — caller must not proceed to close
+        return all_ok
+
+    def update_stop_price(self, symbol: str, new_stop: float) -> bool:
+        """Raise the resting stop-loss leg for ``symbol`` to ``new_stop``.
+
+        Finds the open STOP / STOP_LIMIT sell order for the symbol (the bracket
+        SL leg) and replaces its stop_price. Returns True if an order was
+        replaced, False if no stop leg was found. Used by the trailing-stop
+        exit pass so a ratcheted stop is reflected at the broker, not just in
+        our DB.
+        """
+        req = GetOrdersRequest(
+            status=QueryOrderStatus.OPEN, symbols=[symbol], side=OrderSide.SELL,
+            limit=500, direction="desc", nested=True,
+        )
+        orders = self.client.get_orders(filter=req)
+
+        def _is_stop(o) -> bool:
+            t = str(getattr(o, "order_type", "") or getattr(o, "type", "")).lower()
+            return "stop" in t and getattr(o, "stop_price", None) is not None
+
+        # The stop leg may be a top-level order or a nested bracket child.
+        # Guard on symbol in BOTH branches — a nested parent can carry legs for
+        # the queried symbol while the parent itself is a different instrument.
+        candidates = []
+        for o in orders:
+            if str(getattr(o, "symbol", "")) == symbol and _is_stop(o):
+                candidates.append(o)
+            for leg in (getattr(o, "legs", None) or []):
+                if str(getattr(leg, "symbol", "")) == symbol and _is_stop(leg):
+                    candidates.append(leg)
+
+        if not candidates:
+            return False
+        target = candidates[0]
+        self.client.replace_order_by_id(
+            target.id, order_data=ReplaceOrderRequest(stop_price=round(float(new_stop), 2))
+        )
+        return True
 
     def cancel_all_orders(self) -> int:
         """Cancel every open order (incl. resting bracket stop/take-profit legs).
