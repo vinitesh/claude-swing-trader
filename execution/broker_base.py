@@ -55,6 +55,10 @@ class Broker(ABC):
         Default: True (no broker orders to cancel)."""
         return True
 
+    def get_position_marks(self) -> dict[str, dict[str, float]]:
+        """Live mark-to-market per held symbol. Default: none."""
+        return {}
+
     def is_market_open(self) -> bool:
         """Default: always open (override for real brokers)."""
         return True

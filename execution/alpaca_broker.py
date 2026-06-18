@@ -50,6 +50,26 @@ class AlpacaBroker(Broker):
             )
         return out
 
+    def get_position_marks(self) -> dict[str, dict[str, float]]:
+        """Live mark-to-market per held symbol, straight from Alpaca.
+
+        Returns {symbol: {current_price, market_value, unrealized_pl,
+        unrealized_plpc}}. Alpaca computes these authoritatively, so the
+        dashboard shows the broker's own numbers rather than recomputing.
+        """
+        out: dict[str, dict[str, float]] = {}
+        for p in self.client.get_all_positions():
+            try:
+                out[p.symbol] = {
+                    "current_price": float(p.current_price),
+                    "market_value": float(p.market_value),
+                    "unrealized_pl": float(p.unrealized_pl),
+                    "unrealized_plpc": float(p.unrealized_plpc),
+                }
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def submit_bracket_order(self, signal: Signal, qty: int) -> str:
         if qty <= 0:
             raise ValueError(f"Invalid qty {qty} for {signal.symbol}")

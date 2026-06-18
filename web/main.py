@@ -74,14 +74,38 @@ def healthz() -> str:
     return "ok"
 
 
+def _live_marks() -> tuple[dict, bool]:
+    """Fetch live mark-to-market from the broker. Returns (marks, ok).
+
+    Fail-safe: any error (no creds, network, API) yields ({}, False) so the
+    dashboard still renders — open positions just show "—" for unrealized P&L
+    rather than 500-ing. Read-only: get_position_marks places no orders.
+    """
+    try:
+        from core.live_runner import LiveRunner
+        settings, cfg = init()
+        runner = LiveRunner(settings=settings, config=cfg, dry_run=False)
+        return runner.broker.get_position_marks(), True
+    except Exception as e:  # pragma: no cover - defensive
+        log.warning("live marks unavailable: %s", e)
+        return {}, False
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, _user: str = Depends(require_auth)) -> HTMLResponse:
     _ensure_enabled()
+    marks, marks_ok = _live_marks()
     with session_scope() as s:
+        positions = q.open_positions(s, marks=marks)
+        total_unrealized = sum(
+            p.unrealized_pl for p in positions if p.unrealized_pl is not None
+        )
         ctx = {
             "health": q.health_summary(s),
             "strategies": q.strategy_reports(s),
-            "open_positions": q.open_positions(s),
+            "open_positions": positions,
+            "total_unrealized": total_unrealized,
+            "marks_ok": marks_ok,
             "active_page": "dashboard",
         }
     return templates.TemplateResponse(request, "dashboard.html", ctx)

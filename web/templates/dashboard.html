@@ -86,6 +86,15 @@
 <section>
     <h3>Open positions ({{ open_positions|length }})</h3>
     {% if open_positions %}
+    {% if marks_ok %}
+    <p>Unrealized P&L (open book):
+        <strong style="color: {{ 'green' if total_unrealized >= 0 else 'crimson' }}">
+            ${{ '%+.2f'|format(total_unrealized) }}
+        </strong>
+    </p>
+    {% else %}
+    <p><small><em>⚠ Live prices unavailable — unrealized P&L shows “—”. Entry/stop/target are from the DB.</em></small></p>
+    {% endif %}
     <figure>
     <table role="grid">
         <thead>
@@ -94,6 +103,9 @@
                 <th>Strategy</th>
                 <th class="num">Qty</th>
                 <th class="num">Entry</th>
+                <th class="num">Price</th>
+                <th class="num">Mkt value</th>
+                <th class="num">Unrealized P&L</th>
                 <th class="num">Stop</th>
                 <th class="num">Target</th>
                 <th class="num">Days open</th>
@@ -107,6 +119,15 @@
                 <td>{{ p.strategy_name }}</td>
                 <td class="num">{{ p.qty }}</td>
                 <td class="num">${{ '%.2f'|format(p.avg_entry_price) }}</td>
+                <td class="num">{% if p.current_price is not none %}${{ '%.2f'|format(p.current_price) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if p.market_value is not none %}${{ '%.0f'|format(p.market_value) }}{% else %}—{% endif %}</td>
+                <td class="num">
+                {% if p.unrealized_pl is not none %}
+                    <span style="color: {{ 'green' if p.unrealized_pl >= 0 else 'crimson' }}">
+                        ${{ '%+.2f'|format(p.unrealized_pl) }}{% if p.unrealized_plpc is not none %} ({{ '%+.1f'|format(p.unrealized_plpc * 100) }}%){% endif %}
+                    </span>
+                {% else %}—{% endif %}
+                </td>
                 <td class="num">{% if p.stop_loss %}${{ '%.2f'|format(p.stop_loss) }}{% else %}—{% endif %}</td>
                 <td class="num">{% if p.take_profit %}${{ '%.2f'|format(p.take_profit) }}{% else %}—{% endif %}</td>
                 <td class="num">{{ p.days_open }}</td>

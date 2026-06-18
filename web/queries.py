@@ -39,6 +39,11 @@ class OpenPositionRow:
     take_profit: float | None
     opened_at: datetime
     days_open: int
+    # Live mark-to-market (None when the broker mark is unavailable).
+    current_price: float | None = None
+    market_value: float | None = None
+    unrealized_pl: float | None = None
+    unrealized_plpc: float | None = None
 
 
 @dataclass
@@ -127,7 +132,18 @@ def strategy_reports(session: Session) -> list[StrategyReport]:
     return report_all_strategies(session)
 
 
-def open_positions(session: Session) -> list[OpenPositionRow]:
+def open_positions(
+    session: Session,
+    marks: dict[str, dict[str, float]] | None = None,
+) -> list[OpenPositionRow]:
+    """Open positions, optionally enriched with live mark-to-market.
+
+    ``marks`` is {symbol: {current_price, market_value, unrealized_pl,
+    unrealized_plpc}} from broker.get_position_marks(). When omitted (or a
+    symbol is missing — e.g. broker unreachable), the row's unrealized fields
+    stay None and the dashboard renders them as "—". Pure DB read otherwise.
+    """
+    marks = marks or {}
     rows = session.execute(
         select(Position).where(Position.is_open == True).order_by(Position.opened_at.desc())  # noqa: E712
     ).scalars().all()
@@ -135,11 +151,16 @@ def open_positions(session: Session) -> list[OpenPositionRow]:
     now = datetime.utcnow()
     for p in rows:
         days = (now - p.opened_at).days if p.opened_at else 0
+        m = marks.get(p.symbol, {})
         out.append(OpenPositionRow(
             symbol=p.symbol, strategy_name=p.strategy_name, qty=p.qty,
             avg_entry_price=p.avg_entry_price,
             stop_loss=p.stop_loss, take_profit=p.take_profit,
             opened_at=p.opened_at, days_open=days,
+            current_price=m.get("current_price"),
+            market_value=m.get("market_value"),
+            unrealized_pl=m.get("unrealized_pl"),
+            unrealized_plpc=m.get("unrealized_plpc"),
         ))
     return out
 
