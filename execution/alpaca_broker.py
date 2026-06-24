@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _as_naive_utc(dt: datetime | None) -> datetime | None:
+    """Coerce a datetime to tz-naive UTC for safe comparison.
+
+    Alpaca returns tz-AWARE UTC datetimes; our DB stores tz-NAIVE UTC
+    (datetime.utcnow()). Comparing the two directly raises TypeError. We
+    normalize both sides to naive-UTC before any comparison.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
@@ -158,13 +172,54 @@ class AlpacaBroker(Broker):
                 continue
             if filled_px is None or float(filled_px) <= 0:
                 continue
-            filled_at = o.filled_at or o.updated_at
+            # Normalize BOTH sides to naive-UTC: Alpaca's filled_at is tz-aware,
+            # our DB opened_at is tz-naive. Comparing them raw raises TypeError,
+            # which previously got swallowed → real fills discarded as $0.
+            filled_at = _as_naive_utc(o.filled_at or o.updated_at)
+            cutoff = _as_naive_utc(opened_after)
             # Only count an exit that happened after this position opened — a
             # stale sell from a prior trade on the same symbol is not our exit.
-            if opened_after is not None and filled_at is not None and filled_at < opened_after:
+            if cutoff is not None and filled_at is not None and filled_at < cutoff:
                 continue
             return float(filled_px), (filled_at or datetime.utcnow())
         return None
+
+    def find_exit_fills_in_window(
+        self, symbol: str, start: datetime, end: datetime | None = None,
+        qty: int | None = None,
+    ) -> list[tuple[float, datetime, int]]:
+        """All FILLED sells for ``symbol`` within [start, end] (naive-UTC).
+
+        Returns a list of (fill_price, filled_at, filled_qty), newest first. If
+        ``qty`` is given, only sells whose filled_qty matches are returned —
+        this disambiguates a symbol traded multiple times. The backfill caller
+        inspects the list length: exactly one match → safe to apply; zero or
+        many → flag for human review rather than guessing.
+        """
+        req = GetOrdersRequest(
+            status=QueryOrderStatus.CLOSED, symbols=[symbol], side=OrderSide.SELL,
+            limit=500, direction="desc",
+        )
+        start_n = _as_naive_utc(start)
+        end_n = _as_naive_utc(end)
+        out: list[tuple[float, datetime, int]] = []
+        for o in self.client.get_orders(filter=req):
+            fq = getattr(o, "filled_qty", None)
+            fp = getattr(o, "filled_avg_price", None)
+            if not fq or float(fq) <= 0 or fp is None or float(fp) <= 0:
+                continue
+            fq_int = int(float(fq))
+            if qty is not None and fq_int != int(qty):
+                continue
+            filled_at = _as_naive_utc(o.filled_at or o.updated_at)
+            if filled_at is None:
+                continue
+            if start_n is not None and filled_at < start_n:
+                continue
+            if end_n is not None and filled_at > end_n:
+                continue
+            out.append((float(fp), filled_at, fq_int))
+        return out
 
     def cancel_orders_for_symbol(self, symbol: str) -> bool:
         """Cancel ALL open orders for ``symbol`` (its resting bracket SL/TP legs).

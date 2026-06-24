@@ -274,6 +274,83 @@ def manage_exits(dry_run: bool) -> None:
         sys.exit(2)
 
 
+@cli.command("backfill-exits")
+@click.option("--yes", is_flag=True, help="Apply updates. Without it, dry-run only (no writes).")
+def backfill_exits(yes: bool) -> None:
+    """Recover true exit prices/P&L for closed positions recorded at $0.
+
+    Earlier a tz-comparison bug made exit-fill lookup fail, so genuinely-closed
+    positions were saved with exit_reason no_exit_fill / closed_at_broker and
+    realized_pnl=0. This re-queries Alpaca for the sell that filled between each
+    position's entry and recorded close, and rewrites exit_price + realized_pnl.
+    Dry-run by default; --yes writes.
+    """
+    from core.live_runner import LiveRunner
+    from persistence.db import session_scope
+    from persistence.models import Position
+    from sqlalchemy import select
+
+    settings, global_cfg = init()
+    setup_logging(level=settings.log_level, log_dir=settings.log_dir)
+    runner = LiveRunner(settings=settings, config=global_cfg, dry_run=False)
+    broker = runner.broker
+
+    STALE_REASONS = ("no_exit_fill", "closed_at_broker")
+    updated = recovered = skipped = ambiguous = 0
+    total_pnl_delta = 0.0
+    with session_scope() as s:
+        rows = s.execute(
+            select(Position).where(Position.is_open == False)  # noqa: E712
+        ).scalars().all()
+        candidates = [p for p in rows if p.exit_reason in STALE_REASONS]
+        console.print(f"[bold]{len(candidates)} closed position(s) with placeholder exits.[/bold]")
+        for p in candidates:
+            try:
+                # qty-match scopes to THIS position's exit; window bounds the time.
+                fills = broker.find_exit_fills_in_window(
+                    p.symbol, p.opened_at, p.closed_at, qty=p.qty
+                )
+            except Exception as e:
+                console.print(f"  [yellow]{p.symbol}: lookup failed: {e}[/yellow]")
+                continue
+            if not fills:
+                skipped += 1
+                continue  # no matching filled sell — leave as-is (never filled)
+            if len(fills) > 1:
+                # Ambiguous (symbol re-traded; multiple qty-matching sells in
+                # window). Do NOT guess — flag for manual review.
+                ambiguous += 1
+                console.print(
+                    f"  [yellow]{p.symbol}: {len(fills)} matching sells in window "
+                    f"— SKIPPED (ambiguous, needs manual review)[/yellow]"
+                )
+                continue
+            exit_price, _, _ = fills[0]
+            sign = 1 if p.side == "long" else -1
+            new_pnl = sign * (exit_price - p.avg_entry_price) * p.qty
+            recovered += 1
+            total_pnl_delta += new_pnl
+            console.print(
+                f"  {p.strategy_name:12} {p.symbol:6} entry={p.avg_entry_price:.2f} "
+                f"exit ${exit_price:.2f}  P&L ${new_pnl:+.2f}"
+            )
+            if yes:
+                p.exit_price = exit_price
+                p.realized_pnl = new_pnl
+                p.exit_reason = "exit_filled_backfill"
+                updated += 1
+        if not yes:
+            s.rollback()
+
+    console.print(
+        f"\n[bold]{'Applied' if yes else 'DRY-RUN'}:[/bold] {recovered} recoverable, "
+        f"{updated} written, {ambiguous} ambiguous (skipped), {skipped} no-fill. "
+        f"Net P&L recovered ${total_pnl_delta:+.2f}"
+    )
+    if not yes:
+        console.print("[yellow]Re-run with --yes to write these changes.[/yellow]")
+
+
 @cli.command("close-all")
 @click.option("--yes", is_flag=True, help="Required confirmation flag — without it, dry-run only.")
 def close_all(yes: bool) -> None:
