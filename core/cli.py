@@ -210,6 +210,13 @@ def sync() -> None:
             [p.symbol for p in db_positions], held_symbols, pending_symbols
         )
         to_close = set(buckets["close"])
+        # A symbol can have >1 open DB row (a strategy re-entered a symbol it
+        # already held). The broker NETS these into ONE position with ONE exit
+        # fill, so we must NOT stamp that single fill onto every duplicate row —
+        # that would double-count realized P&L. Only the FIRST (oldest) row we
+        # close for a symbol gets the real fill; any further duplicate rows are
+        # closed at $0 under a distinct reason, since no separate exit exists.
+        symbols_already_filled: set[str] = set()
         for p in db_positions:
             if p.symbol not in to_close:
                 continue
@@ -219,14 +226,26 @@ def sync() -> None:
             # exit — most likely an entry order that was canceled/expired and
             # never actually opened — so we record a 0-P&L placeholder under a
             # distinct reason rather than fabricating a round-trip.
-            try:
-                fill = broker.get_last_exit_fill(p.symbol, opened_after=p.opened_at)
-            except Exception:
+            if p.symbol in symbols_already_filled:
+                # Duplicate row for a symbol whose single real exit we already
+                # attributed to the oldest row. Close flat, don't re-count.
                 fill = None
+                dup = True
+            else:
+                try:
+                    fill = broker.get_last_exit_fill(p.symbol, opened_after=p.opened_at)
+                except Exception:
+                    fill = None
+                dup = False
             if fill is not None:
                 exit_price, _ = fill
                 exit_reason = "exit_filled"
                 tag = f"real fill @ {exit_price:.2f}"
+                symbols_already_filled.add(p.symbol)
+            elif dup:
+                exit_price = p.avg_entry_price
+                exit_reason = "dup_no_separate_exit"
+                tag = f"duplicate row — broker netted; flat @ {exit_price:.2f}"
             else:
                 exit_price = p.avg_entry_price
                 exit_reason = "no_exit_fill"
@@ -234,6 +253,7 @@ def sync() -> None:
             repo.close_position(
                 s, symbol=p.symbol, exit_price=exit_price,
                 exit_reason=exit_reason, closed_at=_dt.utcnow(),
+                position_id=p.id,
             )
             closed += 1
             console.print(f"  closed: {p.symbol} ({tag})")
@@ -438,6 +458,7 @@ def close_all(yes: bool) -> None:
             repo.close_position(
                 s, symbol=p.symbol, exit_price=p.avg_entry_price,
                 exit_reason="close_all", closed_at=_dt.utcnow(),
+                position_id=p.id,
             )
             closed_db += 1
 

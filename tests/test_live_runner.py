@@ -186,6 +186,34 @@ def test_idempotent_rerun_does_not_double_submit(runner_factory):
         assert out2.orders_skipped == 1
 
 
+def test_duplicate_entry_on_held_symbol_is_refused(runner_factory):
+    """Guard against the sync-wedging bug: if the DB already has an open row
+    for a symbol, a fresh signal on it must be REFUSED (not stacked into a
+    second unsyncable open row). Distinct from same-day idempotency — here the
+    duplicate would come from a later day's re-signal.
+    """
+    from strategies.pullback_ema import PullbackEMA
+    forced = DomainSignal(
+        symbol="AAPL", action=Action.BUY,
+        entry_price=150.0, stop_loss=147.0, take_profit=159.0,
+        strategy_name="pullback_ema", confidence=0.65,
+    )
+    with patch.object(PullbackEMA, "should_enter", return_value=forced):
+        runner1 = runner_factory(dry_run=False, universe=["AAPL"])
+        out1 = runner1.run()
+        assert out1.orders_submitted == 1
+
+        # New process/day: fresh runner on the SAME db, but the signal-dedupe
+        # key differs (simulate a later bar_date) so only the position guard
+        # can stop it. Patch signal_already_acted_today to False to isolate.
+        from core import live_runner as lr_mod
+        runner2 = runner_factory(dry_run=False, universe=["AAPL"])
+        with patch.object(lr_mod.repo, "signal_already_acted_today", return_value=False):
+            out2 = runner2.run()
+        assert out2.orders_submitted == 0, "must not stack a 2nd open row on AAPL"
+        assert len(runner2.broker.submitted) == 0
+
+
 def test_broker_failure_is_persisted_as_rejected(runner_factory):
     from strategies.pullback_ema import PullbackEMA
     forced = DomainSignal(

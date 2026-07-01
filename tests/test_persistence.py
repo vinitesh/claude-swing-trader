@@ -84,6 +84,72 @@ def test_position_open_close_realized_pnl(session):
     assert closed.realized_pnl == pytest.approx((424.0 - 400.0) * 50)
 
 
+def test_close_position_with_duplicate_open_rows_does_not_crash(session):
+    # Two open rows on the SAME symbol (strategy re-entered a symbol it held).
+    # The old scalar_one_or_none() raised MultipleResultsFound and rolled back
+    # the whole sync. Closing must now succeed, one row at a time, oldest first.
+    p1 = repo.open_position(
+        session, symbol="DOW", strategy_name="rsi2", side="long",
+        qty=10, avg_entry_price=29.0, stop_loss=28.0, take_profit=32.0,
+    )
+    p2 = repo.open_position(
+        session, symbol="DOW", strategy_name="rsi2", side="long",
+        qty=5, avg_entry_price=30.0, stop_loss=29.0, take_profit=33.0,
+    )
+    session.flush()
+
+    # Close by explicit id → closes exactly that row, leaves the other open.
+    closed = repo.close_position(
+        session, symbol="DOW", exit_price=31.0, exit_reason="exit_filled",
+        position_id=p2.id,
+    )
+    assert closed is not None and closed.id == p2.id and closed.is_open is False
+    still_open = repo.get_open_positions(session)
+    assert [p.id for p in still_open] == [p1.id]
+
+    # Close remaining without id → oldest open row (p1), no crash.
+    closed2 = repo.close_position(
+        session, symbol="DOW", exit_price=28.5, exit_reason="exit_filled",
+    )
+    assert closed2 is not None and closed2.id == p1.id
+    assert repo.get_open_positions(session) == []
+
+
+def test_get_open_positions_is_oldest_first(session):
+    # sync's duplicate-dedup relies on oldest-first ordering: the oldest row
+    # for a symbol receives the real exit fill; later duplicates close flat.
+    from datetime import timedelta
+    base = datetime(2026, 6, 20, 20, 0, 0)
+    younger = repo.open_position(
+        session, symbol="DOW", strategy_name="rsi2", side="long",
+        qty=5, avg_entry_price=30.0, stop_loss=29.0, take_profit=33.0,
+    )
+    older = repo.open_position(
+        session, symbol="DOW", strategy_name="rsi2", side="long",
+        qty=10, avg_entry_price=29.0, stop_loss=28.0, take_profit=32.0,
+    )
+    # Force opened_at so ordering is by time, not insertion/id.
+    older.opened_at = base
+    younger.opened_at = base + timedelta(days=2)
+    session.flush()
+    rows = repo.get_open_positions(session)
+    dow = [p for p in rows if p.symbol == "DOW"]
+    assert [p.id for p in dow] == [older.id, younger.id]
+
+
+def test_has_open_position(session):
+    assert repo.has_open_position(session, "TSLA") is False
+    repo.open_position(
+        session, symbol="TSLA", strategy_name="rsi2", side="long",
+        qty=1, avg_entry_price=250.0, stop_loss=240.0, take_profit=280.0,
+    )
+    session.flush()
+    assert repo.has_open_position(session, "TSLA") is True
+    # After close, no longer counts as open.
+    repo.close_position(session, symbol="TSLA", exit_price=260.0, exit_reason="tp")
+    assert repo.has_open_position(session, "TSLA") is False
+
+
 def test_strategy_for_symbol_lookup(session):
     repo.open_position(
         session, symbol="GOOGL", strategy_name="pullback_ema", side="long",

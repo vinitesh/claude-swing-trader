@@ -209,10 +209,29 @@ def close_position(
     exit_price: float,
     exit_reason: str,
     closed_at: datetime | None = None,
+    position_id: int | None = None,
 ) -> Position | None:
-    p = session.execute(
-        select(Position).where(Position.symbol == symbol, Position.is_open == True)  # noqa: E712
-    ).scalar_one_or_none()
+    """Close ONE open position row and stamp its realized P&L.
+
+    A symbol can legitimately have more than one open row (e.g. a strategy
+    re-entered a symbol it already held, or two strategies both hold it). The
+    broker collapses those into a single net position, so a naive
+    ``scalar_one_or_none()`` here raised ``MultipleResultsFound`` and rolled
+    back the ENTIRE sync transaction — leaving every reconciled exit unrecorded
+    and the DB drifting from the broker.
+
+    To stay robust:
+      * If ``position_id`` is given, close exactly that row (deterministic —
+        the caller iterating per-row uses this).
+      * Otherwise close the OLDEST open row for the symbol (``.first()``, never
+        ``scalar_one_or_none``), so a duplicate can never wedge the caller.
+    """
+    stmt = select(Position).where(Position.is_open == True)  # noqa: E712
+    if position_id is not None:
+        stmt = stmt.where(Position.id == position_id)
+    else:
+        stmt = stmt.where(Position.symbol == symbol).order_by(Position.opened_at.asc())
+    p = session.execute(stmt).scalars().first()
     if p is None:
         return None
     sign = 1 if p.side == "long" else -1
@@ -225,8 +244,15 @@ def close_position(
 
 
 def get_open_positions(session: Session) -> list[Position]:
+    # Oldest-first: sync relies on this order so that when a symbol has
+    # duplicate open rows, the OLDEST is the one that receives the real exit
+    # fill and later duplicates are closed flat (no double-counted P&L).
     return list(
-        session.execute(select(Position).where(Position.is_open == True)).scalars()  # noqa: E712
+        session.execute(
+            select(Position)
+            .where(Position.is_open == True)  # noqa: E712
+            .order_by(Position.opened_at.asc(), Position.id.asc())
+        ).scalars()
     )
 
 
@@ -234,8 +260,24 @@ def get_strategy_for_symbol(session: Session, symbol: str) -> str | None:
     """Find the strategy that opened the currently-open position on this symbol."""
     p = session.execute(
         select(Position).where(Position.symbol == symbol, Position.is_open == True)  # noqa: E712
-    ).scalar_one_or_none()
+    ).scalars().first()
     return p.strategy_name if p else None
+
+
+def has_open_position(session: Session, symbol: str) -> bool:
+    """True if ANY open position row already exists for ``symbol``.
+
+    The broker nets all activity in a symbol into ONE position, so a second
+    DB open row for a symbol we already hold can never be reconciled 1:1 by
+    sync (it would see a single broker position for two DB rows). The live
+    runner uses this to refuse a duplicate entry rather than create an
+    unsyncable row.
+    """
+    return session.execute(
+        select(Position.id).where(
+            Position.symbol == symbol, Position.is_open == True  # noqa: E712
+        ).limit(1)
+    ).first() is not None
 
 
 def classify_for_sync(

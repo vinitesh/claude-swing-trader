@@ -441,6 +441,15 @@ class LiveRunner:
     def _maybe_submit(
         self, session, sig: DomainSignal, sig_row, outcome: RunOutcome
     ) -> None:
+        # Refuse to stack a second open DB row on a symbol we already hold. The
+        # broker nets everything in a symbol into ONE position, so a duplicate
+        # open row is inherently unsyncable and previously wedged `sync`
+        # (MultipleResultsFound). Treat as a risk rejection — no order sent.
+        if repo.has_open_position(session, sig.symbol):
+            outcome.orders_rejected += 1
+            log.info("skip duplicate entry (already hold %s): %s", sig.symbol, sig.strategy_name)
+            return
+
         try:
             account = self.broker.get_account()
             open_positions = self.broker.get_positions()
