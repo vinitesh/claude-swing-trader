@@ -47,6 +47,16 @@ class OpenPositionRow:
 
 
 @dataclass
+class AllocationRow:
+    strategy_name: str
+    cap_usd: float                 # capital_allocation_usd from config (0 = uncapped)
+    invested: float                # sum(qty * avg_entry_price) of open positions (cost basis)
+    market_value: float | None     # live sum of market_value (None if marks unavailable)
+    n_open: int
+    pct_used: float | None         # invested / cap (None when cap == 0)
+
+
+@dataclass
 class RunListRow:
     id: int
     started_at: datetime
@@ -161,6 +171,59 @@ def open_positions(
             market_value=m.get("market_value"),
             unrealized_pl=m.get("unrealized_pl"),
             unrealized_plpc=m.get("unrealized_plpc"),
+        ))
+    return out
+
+
+def strategy_allocations(
+    session: Session,
+    caps: dict[str, float],
+    marks: dict[str, dict[str, float]] | None = None,
+) -> list[AllocationRow]:
+    """Capital deployed per strategy vs its configured cap.
+
+    ``caps`` maps strategy_name -> capital_allocation_usd (0 means uncapped).
+    ``marks`` is the same broker mark map used by open_positions(); when a
+    symbol's mark is missing, that position contributes nothing to
+    market_value and the row's market_value falls back to None only if NO
+    position in the strategy had a mark (so a partial-marks state still shows
+    a partial live value rather than lying with a full one).
+
+    Rows are emitted for every strategy in ``caps`` (so a flat strategy still
+    shows its cap and $0 deployed), plus any strategy that has open positions
+    but somehow isn't in caps (defensive — cap shown as 0/uncapped).
+    """
+    marks = marks or {}
+    open_rows = session.execute(
+        select(Position).where(Position.is_open == True)  # noqa: E712
+    ).scalars().all()
+
+    invested: dict[str, float] = {}
+    mkt: dict[str, float] = {}
+    marked_any: dict[str, bool] = {}
+    n_open: dict[str, int] = {}
+    for p in open_rows:
+        invested[p.strategy_name] = invested.get(p.strategy_name, 0.0) + (p.qty * p.avg_entry_price)
+        n_open[p.strategy_name] = n_open.get(p.strategy_name, 0) + 1
+        m = marks.get(p.symbol)
+        if m is not None and m.get("market_value") is not None:
+            mkt[p.strategy_name] = mkt.get(p.strategy_name, 0.0) + float(m["market_value"])
+            marked_any[p.strategy_name] = True
+
+    names = list(caps.keys())
+    for name in invested:
+        if name not in caps:
+            names.append(name)
+
+    out: list[AllocationRow] = []
+    for name in names:
+        cap = float(caps.get(name, 0.0))
+        inv = round(invested.get(name, 0.0), 2)
+        mv = round(mkt[name], 2) if marked_any.get(name) else None
+        pct = (inv / cap) if cap > 0 else None
+        out.append(AllocationRow(
+            strategy_name=name, cap_usd=cap, invested=inv,
+            market_value=mv, n_open=n_open.get(name, 0), pct_used=pct,
         ))
     return out
 

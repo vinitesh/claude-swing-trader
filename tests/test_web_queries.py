@@ -74,3 +74,54 @@ def test_negative_unrealized(session):
                       "unrealized_pl": -100.0, "unrealized_plpc": -0.10}}
     rows = q.open_positions(session, marks=marks)
     assert rows[0].unrealized_pl == -100.0
+
+
+# ----------------- strategy_allocations -----------------
+def test_allocations_invested_and_pct(session):
+    # rsi2 holds 10 @ 100 = $1000 invested against a $33k cap.
+    _seed(session, "AAPL")  # rsi2, 10 @ 100
+    caps = {"rsi2": 33000.0, "donchian": 33000.0, "pullback_ema": 33000.0}
+    rows = {a.strategy_name: a for a in q.strategy_allocations(session, caps=caps)}
+    assert set(rows) == {"rsi2", "donchian", "pullback_ema"}
+    assert rows["rsi2"].invested == 1000.0
+    assert rows["rsi2"].n_open == 1
+    assert rows["rsi2"].pct_used == pytest.approx(1000.0 / 33000.0)
+    # A capped-but-flat strategy still appears with $0 invested, 0% used.
+    assert rows["donchian"].invested == 0.0
+    assert rows["donchian"].n_open == 0
+    assert rows["donchian"].pct_used == 0.0
+
+
+def test_allocations_market_value_from_marks(session):
+    _seed(session, "AAPL")  # rsi2, 10 @ 100
+    caps = {"rsi2": 33000.0}
+    marks = {"AAPL": {"current_price": 110.0, "market_value": 1100.0,
+                      "unrealized_pl": 100.0, "unrealized_plpc": 0.10}}
+    rows = {a.strategy_name: a for a in q.strategy_allocations(session, caps=caps, marks=marks)}
+    assert rows["rsi2"].market_value == 1100.0
+    # invested (cost) stays at entry basis, distinct from live market value
+    assert rows["rsi2"].invested == 1000.0
+
+
+def test_allocations_market_value_none_without_marks(session):
+    _seed(session, "AAPL")
+    caps = {"rsi2": 33000.0}
+    rows = {a.strategy_name: a for a in q.strategy_allocations(session, caps=caps)}
+    assert rows["rsi2"].market_value is None  # marks unavailable → None, no lie
+
+
+def test_allocations_uncapped_strategy_pct_none(session):
+    _seed(session, "AAPL")
+    caps = {"rsi2": 0.0}  # 0 = uncapped
+    rows = {a.strategy_name: a for a in q.strategy_allocations(session, caps=caps)}
+    assert rows["rsi2"].cap_usd == 0.0
+    assert rows["rsi2"].pct_used is None  # can't compute % of an uncapped strategy
+
+
+def test_allocations_position_in_unknown_strategy_still_shown(session):
+    # Defensive: an open position whose strategy isn't in caps must still appear.
+    _seed(session, "AAPL")  # rsi2
+    caps = {"donchian": 33000.0}  # rsi2 absent
+    rows = {a.strategy_name: a for a in q.strategy_allocations(session, caps=caps)}
+    assert "rsi2" in rows and rows["rsi2"].invested == 1000.0
+    assert rows["rsi2"].cap_usd == 0.0

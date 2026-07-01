@@ -84,6 +84,60 @@
 </section>
 
 <section>
+    <h3>Capital allocation</h3>
+    {% if allocations %}
+    <p><small>Deployed <strong>${{ '%.0f'|format(alloc_total_invested) }}</strong>
+        of <strong>${{ '%.0f'|format(alloc_total_cap) }}</strong> allocated
+        ({{ '%.1f'|format((alloc_total_invested / alloc_total_cap * 100) if alloc_total_cap else 0) }}% used)
+        {% if not marks_ok %}<em>· live market value unavailable</em>{% endif %}
+    </small></p>
+    <figure>
+    <table role="grid">
+        <thead>
+            <tr>
+                <th>Strategy</th>
+                <th class="num">Open</th>
+                <th class="num">Invested (cost)</th>
+                <th class="num">Mkt value</th>
+                <th class="num">Cap</th>
+                <th class="num">Used</th>
+                <th>Utilization</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for a in allocations %}
+            <tr>
+                <td><strong>{{ a.strategy_name }}</strong></td>
+                <td class="num">{{ a.n_open }}</td>
+                <td class="num">${{ '%.0f'|format(a.invested) }}</td>
+                <td class="num">{% if a.market_value is not none %}${{ '%.0f'|format(a.market_value) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if a.cap_usd %}${{ '%.0f'|format(a.cap_usd) }}{% else %}<em>uncapped</em>{% endif %}</td>
+                <td class="num">
+                {% if a.pct_used is not none %}
+                    <span style="color: {{ 'crimson' if a.pct_used >= 0.95 else ('green' if a.pct_used >= 0.5 else 'inherit') }}">
+                        {{ '%.1f'|format(a.pct_used * 100) }}%
+                    </span>
+                {% else %}—{% endif %}
+                </td>
+                <td>
+                {% if a.pct_used is not none %}
+                    <progress value="{{ '%.4f'|format(a.pct_used if a.pct_used < 1 else 1) }}" max="1"></progress>
+                {% else %}—{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </figure>
+    <p><small><em>Invested = cost basis (qty × entry). Cap = <code>capital_allocation_usd</code> per strategy.
+        Idle capital in a strategy is normal — faster strategies (rsi2, pullback_ema) sit in cash between signals;
+        donchian holds ~30–60 days so it stays near its cap.</em></small></p>
+    {% else %}
+    <p><em>No allocation data.</em></p>
+    {% endif %}
+</section>
+
+<section>
     <h3>Open positions ({{ open_positions|length }})</h3>
     {% if open_positions %}
     {% if marks_ok %}

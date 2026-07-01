@@ -91,18 +91,50 @@ def _live_marks() -> tuple[dict, bool]:
         return {}, False
 
 
+def _strategy_caps() -> dict[str, float]:
+    """Map strategy_name -> capital_allocation_usd from config.
+
+    Reads each enabled strategy's per-strategy YAML. Fail-safe: a missing
+    file or key yields a 0 cap (rendered as "uncapped") rather than erroring
+    the whole dashboard.
+    """
+    from core.config import load_strategy_config
+    caps: dict[str, float] = {}
+    try:
+        _, cfg = init()
+    except Exception as e:  # pragma: no cover - defensive
+        log.warning("config load failed for allocations: %s", e)
+        return caps
+    for entry in cfg.get("strategies", []):
+        name = entry.get("name")
+        if not name or not entry.get("enabled", False):
+            continue
+        try:
+            sc = load_strategy_config(entry.get("config_file", f"{name}.yaml"))
+            caps[name] = float(sc.get("capital_allocation_usd", 0) or 0)
+        except Exception as e:  # pragma: no cover - defensive
+            log.warning("cap load failed for %s: %s", name, e)
+            caps[name] = 0.0
+    return caps
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, _user: str = Depends(require_auth)) -> HTMLResponse:
     _ensure_enabled()
     marks, marks_ok = _live_marks()
+    caps = _strategy_caps()
     with session_scope() as s:
         positions = q.open_positions(s, marks=marks)
         total_unrealized = sum(
             p.unrealized_pl for p in positions if p.unrealized_pl is not None
         )
+        allocations = q.strategy_allocations(s, caps=caps, marks=marks)
         ctx = {
             "health": q.health_summary(s),
             "strategies": q.strategy_reports(s),
+            "allocations": allocations,
+            "alloc_total_cap": sum(a.cap_usd for a in allocations),
+            "alloc_total_invested": sum(a.invested for a in allocations),
             "open_positions": positions,
             "total_unrealized": total_unrealized,
             "marks_ok": marks_ok,
